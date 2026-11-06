@@ -116,11 +116,16 @@ nav.tabs .nav-settings{display:none}
 .seg{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
 .chip{border:1px solid var(--line);border-radius:999px;padding:4px 12px;background:var(--panel);cursor:pointer;min-height:36px}
 .chip[aria-pressed="true"],.chip[aria-selected="true"]{background:var(--ink);color:var(--bg)}
-/* Week bubbles: fixed box so every bubble is identical; current week = inset ring + colour only, never a border-width change */
-.wk{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;width:68px;height:52px;padding:0 4px;border:1px solid var(--line);border-radius:12px;background:var(--panel);cursor:pointer}
+/* Course chip rows scroll sideways as one ribbon instead of wrapping into a stack */
+.chip-ribbon{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px}
+.chip-ribbon::-webkit-scrollbar{display:none}
+.chip-ribbon .chip{flex:0 0 auto;white-space:nowrap}
+/* Week bubbles: fixed box so every bubble is identical, styled like the course chips (pill, panel, line border); current week = the chip selected fill (ink background), never a size change */
+.wk{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;width:64px;height:46px;padding:0 4px;border:1px solid var(--line);border-radius:999px;background:var(--panel);cursor:pointer}
 .wk-n{font-size:.85rem;line-height:1.1;white-space:nowrap}
-.wk-bar{display:block;width:40px;height:6px;flex:0 0 6px}
-.wk[aria-current="true"]{box-shadow:inset 0 0 0 2px var(--ink);border-color:var(--ink);font-weight:700}
+.wk-bar{display:block;width:34px;height:5px;flex:0 0 5px}
+.wk[aria-current="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink);font-weight:700}
+.wk[aria-current="true"] .wk-bar{background:var(--bg)}
 .wk-ribbon{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px}
 .wk-ribbon::-webkit-scrollbar{display:none}
 .wk-ribbon .wk{flex:0 0 auto}
@@ -1946,7 +1951,7 @@ function viewChecklist(){
   var wrap = el("div");
   if (!Object.keys(state.courses).length) return emptyCourses();
   var f = view.clFilter || null;
-  var chips = el("div", { class: "seg", role: "group", "aria-label": "Course filter" }, [
+  var chips = el("div", { class: "seg chip-ribbon", role: "group", "aria-label": "Course filter" }, [
     el("button", { class: "chip", "aria-pressed": !f ? "true" : "false", on: { click: function(){ view.clFilter = null; render(); } }, text: "All" })
   ].concat(Object.keys(state.courses).map(function(k){
     return el("button", { class: "chip", "aria-pressed": f === k ? "true" : "false", on: { click: function(){ view.clFilter = k; render(); } } }, [UI.dot(k), UI.courseShort(k)]);
@@ -2098,7 +2103,7 @@ function viewGrades(){
   if (!view.course || !state.courses[view.course]) view.course = keys[0];
   var key = view.course, c = state.courses[key], tpl = c.template;
   var g = courseGrade(key), wrap = el("div");
-  wrap.appendChild(el("div", { class: "seg", role: "group", "aria-label": "Course" }, keys.map(function(k){
+  wrap.appendChild(el("div", { class: "seg chip-ribbon", role: "group", "aria-label": "Course" }, keys.map(function(k){
     return el("button", { class: "chip", "aria-pressed": k === key ? "true" : "false", on: { click: function(){ view.course = k; render(); } } }, [UI.dot(k), UI.courseShort(k)]); })));
   var assume = state.assume[key] !== undefined ? state.assume[key] : (g.current !== null ? Math.round(g.current) : 75);
   var target = state.target[key] !== undefined ? state.target[key] : 80;
@@ -2183,7 +2188,7 @@ function viewCourses(){
   if (!view.course || !state.courses[view.course]) view.course = keys[0];
   var key = view.course, c = state.courses[key], t = c.template, wrap = el("div");
   var rep = replaceSampleCard(); if (rep) wrap.appendChild(rep);
-  wrap.appendChild(el("div", { class: "seg", role: "group", "aria-label": "Course" }, keys.map(function(k){
+  wrap.appendChild(el("div", { class: "seg chip-ribbon", role: "group", "aria-label": "Course" }, keys.map(function(k){
     return el("button", { class: "chip", "aria-pressed": k === key ? "true" : "false", on: { click: function(){ view.course = k; render(); } } }, [UI.dot(k), UI.courseShort(k)]); })
     .concat([el("button", { class: "chip", on: { click: function(){ view.screen = "add"; render(); } }, text: "+ Add course" })])));
   wrap.appendChild(el("section", { class: "card " + UI.courseClass(key), style: "border-top:4px solid var(--c" + (c.color || 0) + ")" }, [
