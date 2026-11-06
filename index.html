@@ -221,7 +221,7 @@ table.grid input{min-width:0}
 <dialog id="welcome" aria-labelledby="welcome-title"><div class="in" id="welcome-body"></div></dialog>
 <dialog id="tour" aria-labelledby="tour-title"><div class="in" id="tour-body"></div></dialog>
 <div id="toast-host" aria-live="polite"></div>
-<!-- Guide prompts, verbatim from COURSE_IMPORT_GUIDE.md section 2 (PLAN R7). Filled by fillPrompt() / fixPrompt(). -->
+<!-- Guide prompts, from COURSE_IMPORT_GUIDE.md section 2 (PLAN R7); rules 15 (SPEC-v2) and 16 (SPEC-v3) go beyond the guide by explicit instruction. Filled by fillPrompt() / fixPrompt(). -->
 <script type="text/plain" id="ai-prompt">
 You are extracting structured data from a university course outline for a student planner app.
 
@@ -245,6 +245,7 @@ STRICT RULES
 13. "source": where in the outline you found it (e.g. "Schedule, Week 5" or "Assessment table").
 14. "confidence": "high" if stated plainly, "low" if you had to interpret.
 15. Sections: list EVERY section of every type (lab, tutorial) in course.sections with its id, day, start time and location. If the course has several lecture sections, give each lecture class entry its own days, times and location. For every class entry that belongs to one section, put that section's id in "section"; use null only for classes everyone attends. (The student will be asked which section is theirs after the JSON is pasted back into the planner, so do not ask them.)
+16. Phrase every entry in "unknowns" as a direct question the student can answer, and say what kind of answer it needs (a date, a time, a name, a number). Example: "When is Quiz Q10? (The outline only says it opens in Week 12 — a date is needed.)"
 
 SCHEMA
 {
@@ -290,6 +291,25 @@ NOTES
 Now extract the attached outline.
 </script>
 <script type="text/plain" id="fix-prompt">Your JSON had these problems: {{errorList}}. Return the full corrected JSON only, in one ```json block, following the same schema and rules. Don't guess missing information; use null and list it in "unknowns".</script>
+<!-- Fix-up prompt (SPEC-v3 item B): built by buildFixupPrompt() from the review's problem list, unknowns, low-confidence items and draft JSON. -->
+<script type="text/plain" id="fixup-prompt">
+You converted a course outline into the JSON below. Fix the problems listed, using the original outline if you still have it in this conversation.
+
+PROBLEMS TO FIX
+{{problemList}}
+
+RULES
+- Fix ONLY what the outline supports; never invent a date, time, weight or name.
+- Anything still unknown stays in "unknowns", phrased as a direct question the student can answer (say what kind of answer it needs: a date, a time, a name, a number).
+- KEEP EVERY ITEM'S "ref" EXACTLY AS-IS. Refs are how the planner matches items to the student's ticks and marks. Do not rename, renumber, drop or merge items.
+- Return the COMPLETE course JSON in exactly the import format below, inside a single ```json code block, with no commentary before or after.
+
+IMPORT FORMAT
+{{schema}}
+
+CURRENT COURSE JSON
+{{draftJson}}
+</script>
 <script>
 (function(){
 "use strict";
@@ -2054,6 +2074,29 @@ function fillPrompt(){
   return txt;
 }
 function fixPrompt(list){ return promptText("fix-prompt").split("{{errorList}}").join(list); }
+/* The AI fix-up prompt for the review (SPEC-v3 B). Pure: reads only the draft, the validator output the screen shows, and the review meta.
+   Problem lines use the Problems-card format; the C4 echo of each unknown is left out because the unknown is listed on its own line.
+   Answer states are facts the student gave, nothing more. The schema block is sliced from the import prompt so it has one source. */
+function buildFixupPrompt(draft, probs, meta){
+  meta = meta || {};
+  var accepted = meta.accepted || [], confirmed = meta.confirmed || {}, unk = meta.unk || [], lines = [];
+  (probs || []).forEach(function(p){
+    if (p.code === "C4" && /^unknowns\[\d+\]$/.test(p.field)) return;
+    var badge = p.level === "error" ? "Error" : p.level === "warning" ? "Warning" : "Info";
+    lines.push("- " + badge + ": " + p.message + (p.ref ? " (" + p.ref + ")" : "") + (accepted.indexOf(p.key) >= 0 ? " (the student says this is correct — leave it)" : ""));
+  });
+  (draft.unknowns || []).forEach(function(u, i){
+    lines.push("- Unknown: " + u + (unk[i] === "blank" ? " (the student doesn't know either — keep it in unknowns)" : unk[i] === "added" ? " (the student has since supplied this; it is already in the JSON below)" : ""));
+  });
+  (draft.items || []).forEach(function(it){
+    if (it && it.confidence === "low") lines.push("- Low confidence: " + (it.title || it.ref) + " (" + it.ref + ") — source: " + (it.source || "not stated") + (confirmed[it.ref] ? " (the student says this is right)" : ""));
+  });
+  var ai = promptText("ai-prompt"), a = ai.indexOf("\nSCHEMA\n"), b = ai.indexOf("\nNOTES\n");
+  var schema = a >= 0 && b > a ? ai.slice(a + 8, b).trim() : "";
+  var json = JSON.stringify({ schemaVersion: 1, term: draft.term || null, course: draft.course, items: draft.items, unknowns: draft.unknowns || [], warnings: draft.warnings || [] }, null, 2);
+  var map = { problemList: lines.length ? lines.join("\n") : "(none listed)", schema: schema, draftJson: json };
+  return promptText("fixup-prompt").replace(/\{\{(problemList|schema|draftJson)\}\}/g, function(m, k){ return map[k]; });
+}
 function copyText(text, okMsg){
   var fallback = function(){
     var ta = el("textarea", { "aria-hidden": "true", style: "position:fixed;left:-9999px;top:0" });
@@ -2266,6 +2309,14 @@ SCREENS.help = function(){
         el("li", { text: "Add to Home Screen now (works from the hosted link): iPhone Safari, Share, then Add to Home Screen. Android Chrome, the menu, then Add to Home screen or Install app." }),
         el("li", { text: "Full install (its own window, and works offline): the app must be hosted over https with manifest.webmanifest, sw.js and the icon files in the same folder as index.html. Opening the file directly from disk cannot install or work offline." }) ]) ]) ]);
 };
+/* The "Couldn't read that" card, shared by the Add screen and the review's paste-back. */
+function parseErrorCard(e){
+  return el("div", { class: "card warn" }, [
+    el("b", { text: "Couldn't read that: " + e.msg }),
+    e.line ? el("p", { class: "hint", text: "Line " + e.line + ", column " + e.col }) : null,
+    e.snippet ? el("pre", { style: "white-space:pre-wrap;font-size:.85rem", text: e.snippet }) : null,
+    el("button", { class: "btn ghost", on: { click: function(){ copyText(fixPrompt(e.msg), "Fix prompt copied. Paste it into your AI chat."); } }, text: "Copy fix prompt" }) ]);
+}
 SCREENS.add = function(){
   var key = view.reimportKey || null;
   var out = el("textarea", { rows: 6, readonly: true, "aria-label": "Prompt text", style: "font-size:.85rem" });
@@ -2281,16 +2332,8 @@ SCREENS.add = function(){
   var readCourse = function(text){
     errBox.textContent = "";
     var r = Parse.run(text);
-    if (!r.ok) {
-      var e = r.error;
-      errBox.appendChild(el("div", { class: "card warn" }, [
-        el("b", { text: "Couldn't read that: " + e.msg }),
-        e.line ? el("p", { class: "hint", text: "Line " + e.line + ", column " + e.col }) : null,
-        e.snippet ? el("pre", { style: "white-space:pre-wrap;font-size:.85rem", text: e.snippet }) : null,
-        el("button", { class: "btn ghost", on: { click: function(){ copyText(fixPrompt(e.msg), "Fix prompt copied. Paste it into your AI chat."); } }, text: "Copy fix prompt" }) ]));
-      return;
-    }
-    view.draft = r.draft; view.screen = "review"; view.reimportKey = key; view.editMode = false; render();
+    if (!r.ok) { errBox.appendChild(parseErrorCard(r.error)); return; }
+    view.draft = r.draft; view.fixLines = null; view.prePaste = null; view.screen = "review"; view.reimportKey = key; view.editMode = false; render();
   };
   return el("div", null, [
     el("button", { class: "btn ghost", on: { click: function(){ view.screen = null; view.reimportKey = null; render(); } }, text: "‹ Back" }),
@@ -2329,6 +2372,7 @@ SCREENS.review = function(){
   if (!meta) {
     meta = view.meta = newReviewMeta(draft, key, existing, !!view.editMode);
   }
+  normalizeReviewMeta(meta, draft);
   var editing = !!view.editMode && !!existing;
   var others = [];
   Object.keys(state.courses).forEach(function(k){
@@ -2340,44 +2384,39 @@ SCREENS.review = function(){
   probs.forEach(function(p){ p.accepted = p.level === "warning" && meta.accepted.indexOf(p.key) >= 0; });
   var errors = probs.filter(function(p){ return p.level === "error"; }).length;
   var warns = probs.filter(function(p){ return p.level === "warning" && !p.accepted; }).length;
-  var unkOpen = meta.unk.filter(function(s){ return s === "open"; }).length;
+  var model = reviewModel(draft, probs, meta);
   persistReview();
   var wrap = el("div");
   var mismatch = existing === undefined && view.reimportKey && view.reimportKey !== key;
   if (mismatch) wrap.appendChild(el("div", { class: "card warn", role: "alert", text: "This outline is for " + draft.course.code + ", but you are re-importing " + UI.courseCode(view.reimportKey) + ". Go back and paste the right course." }));
   // 1. summary bar
-  var reason = errors ? "Fix " + errors + " error" + (errors > 1 ? "s" : "") + " to save." : "";
-  wrap.appendChild(el("section", { class: "card", "aria-label": "Summary" }, [
-    el("h2", { text: (editing ? "Edit " : "") + draft.course.code + " · " + (draft.course.name || "") }),
-    el("p", { text: draft.items.length + " items · " + errors + " errors · " + warns + " warnings · " + unkOpen + " unknowns" }),
-    editing ? el("p", { class: "hint", text: "Editing your saved course. Ticks, marks and notes stay with items you keep." })
-      : existing ? el("p", { class: "hint", text: "Re-importing: ticks, notes and marks are kept. Template version " + (existing.templateVersion || 1) + " → " + ((existing.templateVersion || 1) + 1) + "." }) : null,
-    el("div", { class: "row" }, [
-      el("button", { class: "btn", disabled: !!errors, "aria-disabled": errors ? "true" : "false", on: { click: function(){ saveReview(draft, key, existing); } }, text: editing ? "Save changes" : "Save course" }),
-      el("button", { class: "btn ghost", on: { click: function(){
-        if (window.confirm(editing ? "Discard your edits? The saved course is not changed." : "Discard this import?")) {
-          view.draft = null; view.meta = null; view.screen = null; view.reimportKey = null; view.editMode = false; state.reviewDraft = null; Store.save(); render(); } } }, text: "Cancel" }) ]),
-    errors ? el("p", { class: "hint err", text: reason }) : null ]));
+  wrap.appendChild(reviewSummary(draft, existing, editing, errors, warns, model,
+    function(){ saveReview(draft, key, existing); },
+    function(){
+      if (window.confirm(editing ? "Discard your edits? The saved course is not changed." : "Discard this import?")) {
+        view.draft = null; view.meta = null; view.fixLines = null; view.prePaste = null; view.screen = null; view.reimportKey = null; view.editMode = false; state.reviewDraft = null; Store.save(); render(); } }));
   // Guided term step (never a dead end): shown only when neither the app nor the import has a term.
   if (Gate.addCourse(draft) === "needs-term") wrap.appendChild(reviewTermGate(draft));
   // 1b. section picker, up here so it is asked before Save rather than found late (skippable)
   var secCard = reviewSectionCard(draft, meta); if (secCard) wrap.appendChild(secCard);
   // 2. re-import diff
   if (existing) wrap.appendChild(diffCard(existing, draft, meta));
-  // 3. problems
-  var listP = probs.map(function(p){
+  // 3. questions: the one home of unknowns, low-confidence items and targetable non-error problems
+  if (model.total) wrap.appendChild(questionsCard(draft, meta, model));
+  // 4. problems: errors, untargetable warnings, and info notes (everything the model did not turn into a question)
+  var listP = model.problems.map(function(p){
     var badge = p.level === "error" ? "Error" : p.level === "warning" ? "Warning" : "Info";
     return el("li", { class: "item " + (p.level === "error" ? "err" : "") }, [
       el("div", { class: "t" }, [el("b", { text: badge + ": " }), p.message, p.ref ? el("span", { class: "muted", text: " (" + p.ref + ")" }) : null]),
-      p.level !== "info" && p.field ? el("button", { class: "btn ghost", on: { click: function(){ focusField(p); } }, text: "Fix" }) : null,
+      p.level !== "info" && focusTarget(p) ? el("button", { class: "btn ghost", on: { click: function(){ focusField(p); } }, text: "Fix" }) : null,
       p.level === "warning" ? el("button", { class: "btn ghost", on: { click: function(){
         var i = meta.accepted.indexOf(p.key); if (i >= 0) meta.accepted.splice(i, 1); else meta.accepted.push(p.key); render(); } },
         text: p.accepted ? "Accepted (undo)" : "Accept" }) : null ]);
   });
   wrap.appendChild(el("section", { class: "card", "aria-label": "Problems" }, [el("h2", { text: "Problems" }),
     listP.length ? el("ul", { style: "list-style:none;padding:0" }, listP) : el("p", { class: "ok", text: "No problems found." }) ]));
-  // 4. unknowns
-  if (draft.unknowns.length) wrap.appendChild(unknownsCard(draft, meta));
+  // 4b. AI fix-up prompt and paste-back
+  wrap.appendChild(aiHelpCard(draft, meta, probs));
   // 5. grade breakdown editor
   wrap.appendChild(gradeEditor(draft));
   // 6. pass rules
@@ -2388,6 +2427,20 @@ SCREENS.review = function(){
   wrap.appendChild(courseEditor(draft, meta));
   return wrap;
 };
+/* Summary bar: counts, Save (blocked by errors only, never by open questions) and Cancel. Pure node builder; the click handlers are passed in. */
+function reviewSummary(draft, existing, editing, errors, warns, model, onSave, onCancel){
+  var q = model.unanswered;
+  return el("section", { class: "card", "aria-label": "Summary" }, [
+    el("h2", { text: (editing ? "Edit " : "") + draft.course.code + " · " + (draft.course.name || "") }),
+    el("p", { text: draft.items.length + " items · " + errors + " errors · " + warns + " warnings · " + q + " question" + (q === 1 ? "" : "s") + " unanswered" }),
+    editing ? el("p", { class: "hint", text: "Editing your saved course. Ticks, marks and notes stay with items you keep." })
+      : existing ? el("p", { class: "hint", text: "Re-importing: ticks, notes and marks are kept. Template version " + (existing.templateVersion || 1) + " → " + ((existing.templateVersion || 1) + 1) + "." }) : null,
+    el("div", { class: "row" }, [
+      el("button", { class: "btn", disabled: !!errors, "aria-disabled": errors ? "true" : "false", on: { click: onSave }, text: editing ? "Save changes" : "Save course" }),
+      el("button", { class: "btn ghost", on: { click: onCancel }, text: "Cancel" }) ]),
+    errors ? el("p", { class: "hint err", text: "Fix " + errors + " error" + (errors > 1 ? "s" : "") + " to save." }) : null,
+    q ? el("p", { class: "hint", text: q + " question" + (q === 1 ? "" : "s") + " unanswered — you can still save" }) : null ]);
+}
 /* Section picker for the review: one select per section type the course has (lab, tutorial, per-section lectures). The pick is written to
    meta.section, which saveReview stores as course.section, the same field the Courses screen picker edits. Skippable via "I'll pick later". */
 function reviewSectionCard(draft, meta){
@@ -2416,7 +2469,8 @@ function reviewSectionCard(draft, meta){
 function persistReview(){
   if (!view.draft || !view.meta) return;
   state.reviewDraft = { key: view.meta.key, reimportKey: view.reimportKey || null, editMode: !!view.editMode, draft: view.draft,
-    meta: { accepted: view.meta.accepted, section: view.meta.section, unk: view.meta.unk, removeRefs: view.meta.removeRefs, detailsOpen: view.meta.detailsOpen, sectionLater: !!view.meta.sectionLater },
+    meta: { accepted: view.meta.accepted, section: view.meta.section, unk: view.meta.unk, removeRefs: view.meta.removeRefs, detailsOpen: view.meta.detailsOpen, sectionLater: !!view.meta.sectionLater,
+      confirmed: view.meta.confirmed, unkRef: view.meta.unkRef },
     savedAt: Date.now() };
   Store.save();
 }
@@ -2433,7 +2487,7 @@ function askResume(){
 }
 function resumeReview(){
   var rd = state.reviewDraft; if (!rd || !rd.draft) return;
-  view.draft = rd.draft; view.reimportKey = rd.reimportKey || null; view.editMode = !!rd.editMode;
+  view.draft = rd.draft; view.fixLines = null; view.prePaste = null; view.reimportKey = rd.reimportKey || null; view.editMode = !!rd.editMode;
   view.meta = Object.assign({}, rd.meta, { key: rd.key });
   view.screen = "review"; UI.closeSheet(); render();
 }
@@ -2510,29 +2564,74 @@ function stringListEditor(title, arr, label){
     el("button", { class: "btn ghost", on: { click: function(){ arr.push(""); render(); } }, text: "+ Add " + label.toLowerCase() }) ]);
 }
 SCREENS.import = SCREENS.add;
+/* Item fields that itemEditRow gives a data-field (a self-test keeps this list in step with it). */
+var ITEM_FIELDS = ["title", "tier", "date", "time", "weight", "dateLabel", "comp", "index", "relSection"];
+/* Selector of the editor field a problem points at, or null when nothing in the review can be focused for it. */
+function focusTarget(p){
+  if (!p || typeof p.field !== "string") return null;
+  if (p.ref) return ITEM_FIELDS.indexOf(p.field) >= 0 ? '[data-ref="' + p.ref + '"][data-field="' + p.field + '"]' : null;
+  return /^components\.[^.]+\.weight$/.test(p.field) || /^passRules\[\d+\]$/.test(p.field) ? '[data-path="' + p.field + '"]' : null;
+}
 function focusField(p){
-  var sel = p.ref ? '[data-ref="' + p.ref + '"][data-field="' + p.field + '"]' : '[data-path="' + p.field + '"]';
-  var node = document.querySelector(sel);
+  var sel = focusTarget(p), node = null;
+  if (!sel) return;
+  try { node = document.querySelector(sel); } catch (e) { node = null; }
   if (!node) return;
   for (var a = node.parentElement; a; a = a.parentElement) if (a.tagName === "DETAILS") a.open = true;
   node.scrollIntoView({ block: "center" }); node.focus();
   node.classList.add("bad"); setTimeout(function(){ node.classList.remove("bad"); }, 1200);
 }
-function unknownsCard(draft, meta){
-  var undated = draft.items.map(function(it, i){ return { it: it, i: i }; }).filter(function(x){ return !Dt.ok(x.it.date) && !x.it.relative; });
-  return el("section", { class: "card", "aria-label": "Unknowns" }, [el("h2", { text: "Unknowns" }),
-    draft.unknowns.map(function(u, i){
-      var dateIn = el("input", { type: "date", "aria-label": "Date for " + u }), sel = el("select", { "aria-label": "Item to date" },
-        [el("option", { value: "", text: "Choose an item" })].concat(undated.map(function(x){ return el("option", { value: x.i, text: x.it.title }); })));
-      return el("div", { class: "item", style: "display:block" }, [
-        el("div", { class: "t", text: u + (meta.unk[i] === "blank" ? " (left blank)" : meta.unk[i] === "added" ? " (dated)" : "") }),
-        el("div", { class: "row" }, [
-          undated.length ? sel : null, undated.length ? dateIn : null,
-          undated.length ? el("button", { class: "btn ghost", on: { click: function(){
-            if (sel.value === "" || !dateIn.value) { UI.toast("Choose an item and a date."); return; }
-            draft.items[+sel.value].date = dateIn.value; meta.unk[i] = "added"; render(); } }, text: "Add date(s)" }) : null,
-          el("button", { class: "btn ghost", on: { click: function(){ meta.unk[i] = "blank"; render(); } }, text: "Leave blank" }) ]) ]);
-    }) ]);
+/* The answer controls of one unknown: item picker + date + "Add date(s)". Null when no item lacks a date. Writes meta.unk[i] and meta.unkRef[i];
+   the Questions card is the only place that calls it. The picker starts on the undated item the unknown's text names, when there is one. */
+function unknownAnswerControls(draft, meta, i){
+  var u = draft.unknowns[i];
+  var undated = draft.items.map(function(it, idx){ return { it: it, i: idx }; }).filter(function(x){ return x.it && !Dt.ok(x.it.date) && !x.it.relative; });
+  if (!undated.length) return null;
+  var named = unknownRefs(u, draft.items);
+  var dateIn = el("input", { type: "date", "aria-label": "Date for " + u }), sel = el("select", { "aria-label": "Item to date" },
+    [el("option", { value: "", text: "Choose an item" })].concat(undated.map(function(x){
+      return el("option", { value: x.i, selected: named.length && x.it.ref === named[0] ? true : undefined, text: x.it.title }); })));
+  return el("div", { class: "row" }, [sel, dateIn,
+    el("button", { class: "btn ghost", on: { click: function(){
+      if (sel.value === "" || !dateIn.value) { UI.toast("Choose an item and a date."); return; }
+      var it = draft.items[+sel.value]; it.date = dateIn.value; meta.unk[i] = "added"; meta.unkRef[i] = it.ref; render(); } }, text: "Add date(s)" }) ]);
+}
+function questionsCard(draft, meta, model){
+  var toggleIn = function(map, ref){ if (map[ref]) delete map[ref]; else map[ref] = true; render(); };
+  var row = function(q, done){
+    var body = el("div", { class: "t", text: q.text }), acts = [];
+    if (q.kind === "unknown") {
+      if (done) {
+        body = el("div", { class: "t", text: q.text + " — " + (meta.unk[q.i] === "blank" ? "you don't know" : "dated") });
+        if (meta.unk[q.i] === "blank") acts.push(el("button", { class: "btn ghost", on: { click: function(){ meta.unk[q.i] = "open"; render(); } }, text: "Undo" }));
+        else if (meta.unkRef[q.i]) acts.push(el("button", { class: "btn ghost", on: { click: function(){ focusField({ ref: meta.unkRef[q.i], field: "date" }); } }, text: "Edit date" }));
+      } else {
+        var ctl = unknownAnswerControls(draft, meta, q.i); if (ctl) acts.push(ctl);
+        acts.push(el("button", { class: "btn ghost", on: { click: function(){ meta.unk[q.i] = "blank"; render(); } }, text: "Still don't know" }));
+      }
+    } else if (q.kind === "low") {
+      body = el("div", null, [el("div", { class: "t", text: "The AI wasn't sure about this one — is it right?" }),
+        el("div", null, [el("b", { text: q.text })]), el("div", { class: "hint", text: "Source: " + (q.source || "not stated") })]);
+      if (done) acts.push(el("button", { class: "btn ghost", on: { click: function(){ toggleIn(meta.confirmed, q.ref); } }, text: "Looks right (undo)" }));
+      else {
+        acts.push(el("button", { class: "btn ghost", on: { click: function(){ focusField({ ref: q.ref, field: "title" }); } }, text: "Check it" }));
+        acts.push(el("button", { class: "btn ghost", on: { click: function(){ toggleIn(meta.confirmed, q.ref); } }, text: "Looks right" }));
+      }
+    } else {
+      body = el("div", { class: "t" }, [q.text, q.ref ? el("span", { class: "muted", text: " (" + q.ref + ")" }) : null]);
+      if (!done) acts.push(el("button", { class: "btn ghost", on: { click: function(){ focusField(q.p); } }, text: "Fix it" }));
+      acts.push(el("button", { class: "btn ghost", on: { click: function(){
+        var at = meta.accepted.indexOf(q.p.key); if (at >= 0) meta.accepted.splice(at, 1); else meta.accepted.push(q.p.key); render(); } },
+        text: done ? "That's right (undo)" : "That's right" }));
+    }
+    return el("div", { class: "item", style: "display:block" }, [body, acts.length ? el("div", { class: "row" }, acts) : null]);
+  };
+  var open = model.questions.filter(function(q){ return !q.answered; }), done = model.questions.filter(function(q){ return q.answered; });
+  return el("section", { class: "card", "aria-label": "Questions for you" }, [
+    el("h2", { text: "Questions for you" + (model.unanswered ? " · " + model.unanswered + " unanswered" : " · all answered") }),
+    el("p", { class: "hint", text: model.answered + " of " + model.total + " answered. You can save with questions still open." }),
+    open.map(function(q){ return row(q, false); }),
+    done.length ? el("details", null, [el("summary", { style: "cursor:pointer;font-weight:700", text: "Answered (" + done.length + ")" }), done.map(function(q){ return row(q, true); })]) : null ]);
 }
 function gradeEditor(draft){
   var comps = draft.course.components, total = 0;
@@ -2559,11 +2658,11 @@ function passEditor(draft){
           on: { change: function(ev){ r.min = +ev.target.value; render(); } } }), el("span", { text: "%" })]) ]);
     }) : el("p", { class: "muted", text: "No pass rules stated. The app still shows overall ≥ 50%." }) ]);
 }
-function diffCard(existing, draft, meta){
-  var oldBy = {}, lines = [], missing = [];
-  existing.items.forEach(function(it){ oldBy[it.ref] = it; });
-  var newRefs = {};
-  draft.items.forEach(function(it){
+/* Item-level changes between two item lists, matched by ref: display lines plus the old items the new list no longer has. */
+function diffLines(oldItems, newItems){
+  var oldBy = {}, lines = [], missing = [], newRefs = {};
+  oldItems.forEach(function(it){ oldBy[it.ref] = it; });
+  newItems.forEach(function(it){
     if (!it || !it.ref) return;
     newRefs[it.ref] = true;
     var old = oldBy[it.ref];
@@ -2571,7 +2670,11 @@ function diffCard(existing, draft, meta){
     if ((old.date || null) !== (it.date || null)) lines.push("“" + it.title + "” moved " + (old.date ? Dt.short(old.date) : "no date") + " → " + (it.date ? Dt.short(it.date) : "no date"));
     else if (old.title !== it.title || old.tier !== it.tier || old.weight !== it.weight) lines.push("“" + it.title + "” changed");
   });
-  existing.items.forEach(function(it){ if (!newRefs[it.ref]) missing.push(it); });
+  oldItems.forEach(function(it){ if (!newRefs[it.ref]) missing.push(it); });
+  return { lines: lines, missing: missing };
+}
+function diffCard(existing, draft, meta){
+  var dl = diffLines(existing.items, draft.items), lines = dl.lines, missing = dl.missing;
   var oldComp = {};
   existing.template.components.forEach(function(c){ oldComp[c.k] = c; });
   draft.course.components.forEach(function(c){ var o = oldComp[c.k]; if (o && c.count < o.count) lines.push((o.count - c.count) + " marks no longer have a slot in " + c.name + "."); });
@@ -2637,7 +2740,7 @@ function itemEditRow(it, idx, draft, meta){
       el("div", { class: "row" }, [lab("Component", comp, "grow"), lab("Index in component (0 = first)", index)]),
       relSec ? lab("Relative to (section type)", relSec) : null,
       note ? el("div", { class: "hint", text: note }) : null,
-      el("div", { class: "hint", text: "Source: " + (it.source || "not stated") + (it.confidence === "low" ? " · low confidence" : "") }),
+      el("div", { class: "hint", text: "Source: " + (it.source || "not stated") + (it.confidence === "low" ? " · low confidence" + (meta.confirmed && meta.confirmed[it.ref] ? " · you confirmed it" : "") : "") }),
       el("button", { class: "btn ghost", "aria-label": "Delete item " + it.ref, on: { click: function(){ deleteDraftItem(draft, meta, idx); } }, text: "Delete item" }) ]) ]);
 }
 function normalizeTerm(t){
@@ -2678,7 +2781,7 @@ function saveReview(draft, key, existing){
   applyCourseSave(draft, key, existing, view.meta);
   state.reviewDraft = null;
   Store.save();
-  view.draft = null; view.meta = null; view.screen = null; view.reimportKey = null; view.editMode = false; view.course = key;
+  view.draft = null; view.meta = null; view.fixLines = null; view.prePaste = null; view.screen = null; view.reimportKey = null; view.editMode = false; view.course = key;
   UI.toast(editing ? "Course updated" : COURSE_CHECK_PROMPT);
   UI.setTab("courses");
 }
@@ -2712,7 +2815,8 @@ function applyCourseSave(draft, key, existing, meta){
     templateVersion: existing ? (existing.templateVersion || 1) + 1 : 1,
     section: meta.section || {}, color: existing ? existing.color : nextColor(),
     unknowns: draft.unknowns.map(function(u, i){ return { text: u, status: meta.unk[i] === "blank" ? "blank" : "open" }; }),
-    warnings: draft.warnings.slice(), accepted: meta.accepted.slice()
+    warnings: draft.warnings.slice(), accepted: meta.accepted.slice(),
+    confirmed: Object.keys(meta.confirmed || {}).filter(function(r){ return kept[r]; })   // confidence itself is never upgraded (PLAN-v3 1.3)
   };
   return { removed: removed };
 }
@@ -2724,13 +2828,132 @@ function editDraftFor(key){
 }
 function editDraftFrom(key){
   var d = editDraftFor(key); if (!d) return;
-  view.draft = d; view.reimportKey = key; view.editMode = true; view.meta = null; view.screen = "review";
+  view.draft = d; view.fixLines = null; view.prePaste = null; view.reimportKey = key; view.editMode = true; view.meta = null; view.screen = "review";
   render();
 }
 /* Starting review state for a draft. On re-import and edit it is seeded from the saved course: accepted warnings, the section pick, and (editing only) left-blank unknowns. */
 function newReviewMeta(draft, key, existing, editing){
+  var confirmed = {};
+  if (editing && existing) (existing.confirmed || []).forEach(function(r){ confirmed[r] = true; });   // re-import asks again: the new data may differ
   return { key: key, accepted: existing ? (existing.accepted || []).slice() : [], section: existing ? JSON.parse(JSON.stringify(existing.section || {})) : {},
-    unk: draft.unknowns.map(function(u, i){ return editing && existing && existing.unknowns[i] && existing.unknowns[i].status === "blank" ? "blank" : "open"; }), removeRefs: {} };
+    unk: draft.unknowns.map(function(u, i){ return editing && existing && existing.unknowns[i] && existing.unknowns[i].status === "blank" ? "blank" : "open"; }), removeRefs: {},
+    confirmed: confirmed, unkRef: {} };
+}
+/* Fills review-meta fields a draft saved by an older build lacks (confirmed, unkRef, a short unk list). Runs on every review render. */
+function normalizeReviewMeta(meta, draft){
+  if (!Array.isArray(meta.accepted)) meta.accepted = [];
+  ["section", "removeRefs", "confirmed", "unkRef"].forEach(function(k){ if (!meta[k] || typeof meta[k] !== "object" || Array.isArray(meta[k])) meta[k] = {}; });
+  if (!Array.isArray(meta.unk)) meta.unk = [];
+  var n = (draft.unknowns || []).length;
+  while (meta.unk.length < n) meta.unk.push("open");
+  if (meta.unk.length > n) meta.unk.length = n;
+  return meta;
+}
+/* Refs of the items an unknown's text names: the ref as a whole token (case-insensitive, "-" also matches a space or hyphen: q10 ↔ "Quiz Q10"),
+   or the item's full title when it is at least 4 characters. */
+function unknownRefs(text, items){
+  var t = String(text || "").toLowerCase(), out = [];
+  var esc = function(s){ return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); };
+  (items || []).forEach(function(it){
+    if (!it || typeof it.ref !== "string" || !it.ref) return;
+    var re = new RegExp("(^|[^a-z0-9])" + it.ref.toLowerCase().split("-").map(esc).join("[ -]") + "(?![a-z0-9])");
+    var title = typeof it.title === "string" ? it.title.trim().toLowerCase() : "";
+    if (re.test(t) || (title.length >= 4 && t.indexOf(title) >= 0)) out.push(it.ref);
+  });
+  return out;
+}
+/* The single partition of everything the review knows (PLAN-v3 1.1): each unknown, low-confidence item and targetable non-error problem is a
+   question; D7 "Needs a date" for an item an unknown names is folded into that unknown (covers); the C4 echo of each unknown is dropped;
+   everything else stays in `problems`. Both cards render only from this, so no fact appears twice. Pure: no save, no render. */
+function reviewModel(draft, probs, meta){
+  var qs = [], problems = [], dropped = [], items = draft.items || [], unk = draft.unknowns || [];
+  var accepted = function(p){ return meta.accepted.indexOf(p.key) >= 0; };
+  unk.forEach(function(u, i){
+    var refs = unknownRefs(u, items), e = meta.unkRef[i];
+    if (e && refs.indexOf(e) < 0) refs.push(e);
+    qs.push({ kind: "unknown", id: "unk:" + i, text: u, i: i, refs: refs, covers: [], answered: meta.unk[i] !== "open" });
+  });
+  items.forEach(function(it){
+    if (it && it.confidence === "low" && typeof it.ref === "string") qs.push({ kind: "low", id: "low:" + it.ref, text: it.title || it.ref, ref: it.ref, source: it.source, answered: !!meta.confirmed[it.ref] });
+  });
+  (probs || []).forEach(function(p){
+    if (p.code === "C4" && /^unknowns\[\d+\]$/.test(p.field)) { dropped.push(p); return; }
+    if (p.code === "D7" && p.ref) {
+      var host = qs.filter(function(q){ return q.kind === "unknown" && q.refs.indexOf(p.ref) >= 0; })[0];
+      if (host) { host.covers.push(p); return; }
+    }
+    if (p.level !== "error" && focusTarget(p)) { qs.push({ kind: "problem", id: "prob:" + p.key, text: p.message, ref: p.ref, p: p, answered: accepted(p) }); return; }
+    problems.push(p);
+  });
+  var answered = qs.filter(function(q){ return q.answered; }).length;
+  return { questions: qs, problems: problems, dropped: dropped, answered: answered, total: qs.length, unanswered: qs.length - answered };
+}
+/* Review meta for a draft that replaces another of the same course (paste-back). Section pick, accepted keys, removals and the details toggle carry over as-is
+   (stale section ids already count as no pick). Confirmations carry for refs still present. unk/unkRef are position-indexed and the AI may reorder or reword
+   unknowns, so they follow the unknown's exact trimmed text; an "added" answer only carries while its item still has a valid date. Anything else starts open. */
+function carryMetaForPaste(oldMeta, oldDraft, newDraft){
+  var clone = function(o){ return JSON.parse(JSON.stringify(o || {})); };
+  var m = { key: oldMeta.key, accepted: (oldMeta.accepted || []).slice(), section: clone(oldMeta.section), sectionLater: !!oldMeta.sectionLater,
+    removeRefs: clone(oldMeta.removeRefs), detailsOpen: oldMeta.detailsOpen, confirmed: {}, unk: [], unkRef: {} };
+  var refs = {}, oldUnk = (oldDraft.unknowns || []).map(function(u){ return String(u).trim(); });
+  (newDraft.items || []).forEach(function(it){ if (it && it.ref) refs[it.ref] = it; });
+  Object.keys(oldMeta.confirmed || {}).forEach(function(r){ if (refs[r] && oldMeta.confirmed[r]) m.confirmed[r] = true; });
+  (newDraft.unknowns || []).forEach(function(u, i){
+    var j = oldUnk.indexOf(String(u).trim()), st = j >= 0 && oldMeta.unk ? oldMeta.unk[j] : "open", ref = j >= 0 && oldMeta.unkRef ? oldMeta.unkRef[j] : null;
+    if (st === "added" && !(ref && refs[ref] && Dt.ok(refs[ref].date))) st = "open";
+    m.unk[i] = st === "blank" || st === "added" ? st : "open";
+    if (ref && m.unk[i] === "added") m.unkRef[i] = ref;
+  });
+  return m;
+}
+/* Pure core of the review's "paste the AI's fixed data": the same Parse.run as a fresh import paste, then a course-key check before anything is replaced.
+   Returns {ok:false,error} (parse failure), {ok:false,wrongKey:{got,want}}, or {ok:true,draft,meta,lines}. Never touches view, state or the draft/meta passed in. */
+function pasteBackCore(text, draft, meta){
+  var r = Parse.run(text);
+  if (!r.ok) return { ok: false, error: r.error };
+  if (Parse.courseKey(r.draft.course.code) !== meta.key) return { ok: false, wrongKey: { got: r.draft.course.code, want: draft.course.code } };
+  var d = diffLines(draft.items, r.draft.items);
+  return { ok: true, draft: r.draft, meta: carryMetaForPaste(meta, draft, r.draft),
+    lines: d.lines.concat(d.missing.map(function(it){ return "Not in the AI's data: " + (it.title || it.ref); })) };
+}
+/* Review card: copy the fix-up prompt, paste the AI's fixed data back, and (right after a paste) show what changed with Undo. */
+function aiHelpCard(draft, meta, probs){
+  var promptBox = el("textarea", { rows: 8, readonly: true, "aria-label": "Fix-up prompt text", style: "font-size:.85rem" });
+  var box = el("textarea", { rows: 6, "aria-label": "Paste the AI's fixed data", placeholder: "Paste the AI's reply here" });
+  var errBox = el("div", { role: "alert" });
+  var something = probs.some(function(p){ return !(p.code === "C4" && /^unknowns\[/.test(p.field)); }) || draft.unknowns.length > 0 || draft.items.some(function(it){ return it && it.confidence === "low"; });
+  var details = el("details", null, [el("summary", { style: "cursor:pointer", text: "Show the prompt" }), promptBox]);
+  var check = function(){
+    errBox.textContent = "";
+    var res = pasteBackCore(box.value, view.draft, view.meta);
+    if (res.error) { errBox.appendChild(parseErrorCard(res.error)); return; }
+    if (res.wrongKey) {
+      errBox.appendChild(el("div", { class: "card warn", text: "This data is for " + res.wrongKey.got + ", but you are reviewing " + res.wrongKey.want + ". Paste the fixed data for " + res.wrongKey.want + ". Nothing was changed." }));
+      return;
+    }
+    view.prePaste = { draft: view.draft, meta: view.meta };
+    view.draft = res.draft; view.meta = res.meta; view.fixLines = res.lines;
+    if (state.courses[res.meta.key] && !view.reimportKey) view.reimportKey = res.meta.key;
+    UI.toast("Fixed data checked. Review the changes below."); render();
+  };
+  var main = el("section", { class: "card", "aria-label": "AI help" }, [
+    el("h2", { text: "Fix with an AI" }),
+    something ? el("button", { class: "btn", on: { click: function(){
+      var text = buildFixupPrompt(view.draft, probs, view.meta); promptBox.value = text; details.open = true;
+      copyText(text, "Fix-up prompt copied. Paste it into your AI chat."); } }, text: "Get AI help with these problems" })
+      : el("p", { class: "muted", text: "Nothing to fix right now, so there is nothing to ask an AI." }),
+    details,
+    el("label", { class: "f" }, [el("span", { text: "Paste the AI's fixed data" }), box]),
+    el("div", { class: "row" }, [el("button", { class: "btn", on: { click: check }, text: "Check fixed data" })]),
+    errBox ]);
+  if (!view.fixLines) return main;
+  return el("div", null, [
+    el("section", { class: "card", "aria-label": "Changes from the AI's fix" }, [
+      el("h2", { text: "Changes from the AI's fix" }),
+      view.fixLines.length ? el("ul", null, view.fixLines.map(function(l){ return el("li", { text: l }); })) : el("p", { class: "muted", text: "No changes to items." }),
+      view.prePaste ? el("button", { class: "btn ghost", on: { click: function(){
+        view.draft = view.prePaste.draft; view.meta = view.prePaste.meta; view.fixLines = null; view.prePaste = null; UI.toast("Paste undone"); render(); } }, text: "Undo paste" }) : null ]),
+    main ]);
 }
 
 /* ===== JS 14: export, remove, backup, self-test, boot ===== */
@@ -3058,6 +3281,9 @@ function runSelfTests(){
     finally { state.courses = c; } });
   t("prompt: contains the EVERY section instruction", function(){
     return { ok: pr.indexOf("15. Sections: list EVERY section of every type") >= 0 && pr.indexOf("put that section's id in \"section\"") >= 0, detail: "rule 15 missing" }; });
+  t("prompt: rule 16 asks for unknowns phrased as questions", function(){
+    var i15 = pr.indexOf("15. Sections: list EVERY section"), i16 = pr.indexOf("16. Phrase every entry in \"unknowns\" as a direct question");
+    return { ok: i15 >= 0 && i16 > i15 && pr.indexOf("a date is needed") >= 0 && pr.indexOf("{{") === -1, detail: "i15 " + i15 + " i16 " + i16 }; });
   t("add course: tells the human they will be asked for their section", function(){
     return { ok: SCREENS.add().textContent.indexOf("you'll be asked which one is yours") >= 0, detail: "line missing" }; });
   // edit preservation (item 6): a dated graded DEMO*3530 item with a mark slot, edited through the same draft/save core the review uses
@@ -3124,6 +3350,206 @@ function runSelfTests(){
   t("tour: Settings and Help both offer Take the tour", function(){
     var v = view.screen; var a = hasBtn(SCREENS.settings(), "Take the tour"), b = hasBtn(SCREENS.help(), "Take the tour"); view.screen = v;
     return { ok: a && b && !!document.getElementById("tour"), detail: "settings " + a + " help " + b }; });
+  /* ---- v3 tests: Questions card model, fix-up prompt, paste-back. Pure builders and cores only; never Store.save or render. ---- */
+  var qItem = function(ref, title, o){
+    return Object.assign({ ref: ref, title: title, tier: "graded", date: null, time: null, dateLabel: null, window: null, relative: null,
+      weight: null, comp: "a", index: 0, postGroup: null, tips: [], source: "fixture", confidence: "high" }, o || {}); };
+  var qFx = function(){
+    return { term: SAMPLE_TERM, warnings: ["Check the TA table."],
+      unknowns: ["Final exam date, time and location (TBA)", "TA names were not in the outline", "Quiz Q10 date (opens Week 12)"],
+      course: { code: "QX*1000", name: "Question Fixture", classes: [], sections: [], passRules: [], components: [sComp("a", "A", 100, ["A1","Q10","Final","Proj"])] },
+      items: [qItem("a1", "Assignment 1", { date: "2026-10-01", dateLabel: "Wed Oct 1", index: 0 }),
+        qItem("q10", "Quiz Q10 (Courselink)", { index: 1 }),
+        qItem("final-exam", "Final exam", { index: 2 }),
+        qItem("proj", "Project", { index: 3 }),
+        qItem("lab1", "Lab 1 report", { tier: "must", date: "2026-10-06", comp: null, index: null, confidence: "low", source: "Schedule, Week 5" })] };
+  };
+  var qMeta = function(d){ return normalizeReviewMeta({ key: "QX1000", accepted: [], section: {}, unk: [], removeRefs: {} }, d); };
+  var qRun = function(d, m){ var ps = Validate.run(d, { term: SAMPLE_TERM, others: [] }); return { probs: ps, model: reviewModel(d, ps, m) }; };
+  var kinds = function(model, k){ return model.questions.filter(function(q){ return q.kind === k; }); };
+  t("questions: one question per unknown, per low item, per fielded warning", function(){
+    var d = qFx(), m = qMeta(d), r = qRun(d, m), mod = r.model;
+    var pq = kinds(mod, "problem");
+    return { ok: kinds(mod, "unknown").length === 3 && kinds(mod, "low").length === 1 && kinds(mod, "low")[0].ref === "lab1" && kinds(mod, "low")[0].source === "Schedule, Week 5"
+      && pq.length === 2 && pq.some(function(q){ return q.p.code === "D4" && q.ref === "a1"; }) && pq.some(function(q){ return q.p.code === "D7" && q.ref === "proj"; }) && mod.total === 6,
+      detail: mod.questions.map(function(q){ return q.id; }).join(",") }; });
+  t("questions: D7 for q10 and final-exam folded into their unknowns, not separate and not in Problems", function(){
+    var d = qFx(), m = qMeta(d), mod = qRun(d, m).model, unk = kinds(mod, "unknown");
+    var covers = function(i){ return unk[i].covers.map(function(p){ return p.ref; }).join(); };
+    var loose = mod.questions.concat(mod.problems.map(function(p){ return { p: p }; })).filter(function(q){ return q.p && q.p.code === "D7" && (q.p.ref === "q10" || q.p.ref === "final-exam"); });
+    return { ok: covers(0) === "final-exam" && covers(2) === "q10" && loose.length === 0, detail: "covers " + covers(0) + " | " + covers(2) + " loose " + loose.length }; });
+  t("questions: unknown naming no item links to nothing; D7 of an unrelated item stays its own question", function(){
+    var d = qFx(), m = qMeta(d), mod = qRun(d, m).model, ta = kinds(mod, "unknown")[1];
+    return { ok: ta.refs.length === 0 && ta.covers.length === 0 && kinds(mod, "problem").some(function(q){ return q.p.code === "D7" && q.ref === "proj"; }), detail: "refs " + ta.refs.join() }; });
+  t("questions: unknownRefs matches whole tokens only (q1 does not match Q10)", function(){
+    var items = [qItem("q1", "Q1"), qItem("q10", "Quiz Q10"), qItem("lab-2", "Lab Two"), qItem("final-exam", "Final exam")];
+    return eq([unknownRefs("When is Quiz Q10?", items).join(), unknownRefs("Lab 2 room", items).join(), unknownRefs("Final exam date", items).join(), unknownRefs("Q1 due", items).join()].join(" | "), "q10 | lab-2 | final-exam | q1"); });
+  t("questions: an explicit unkRef link also folds the D7", function(){
+    var d = qFx(); d.unknowns[1] = "Date still missing"; var m = qMeta(d); m.unkRef[1] = "proj";
+    var mod = qRun(d, m).model;
+    return { ok: kinds(mod, "unknown")[1].covers.length === 1 && !kinds(mod, "problem").some(function(q){ return q.ref === "proj"; }), detail: "covers " + kinds(mod, "unknown")[1].covers.length }; });
+  t("questions: C4 \"Unknown:\" lines never appear in the Problems bucket; C4 warnings stay as notes", function(){
+    var d = qFx(), r = qRun(d, qMeta(d));
+    var unkLines = r.model.problems.filter(function(p){ return p.code === "C4" && /^unknowns\[/.test(p.field); }).length;
+    return { ok: unkLines === 0 && r.model.dropped.length === 3 && r.model.problems.some(function(p){ return p.code === "C4" && p.field === "warnings[0]"; }), detail: "dropped " + r.model.dropped.length }; });
+  t("questions: every problem lands in exactly one place", function(){
+    var d = qFx(); d.course.components[0].count = 5; d.items[0].index = 9; d.items.push(qItem("dupe", "Dupe", { date: "2026-10-01", time: "09:00", index: 0 }), qItem("dupe2", "Dupe two", { date: "2026-10-01", time: "09:00", index: 0 }));
+    var r = qRun(d, qMeta(d)), bad = [];
+    r.probs.forEach(function(p){
+      var n = r.model.problems.filter(function(x){ return x === p; }).length + r.model.dropped.filter(function(x){ return x === p; }).length
+        + r.model.questions.filter(function(q){ return q.p === p; }).length
+        + r.model.questions.reduce(function(a, q){ return a + (q.covers || []).filter(function(x){ return x === p; }).length; }, 0);
+      if (n !== 1) bad.push(p.code + ":" + p.field + "=" + n);
+    });
+    return { ok: r.probs.length > 8 && bad.length === 0, detail: bad.join(",") + " of " + r.probs.length }; });
+  t("questions: errors stay in Problems; info without a target (D2 term, X2) stays in Problems", function(){
+    var d = qFx(); d.items[0].index = 9; d.term = Object.assign({}, SAMPLE_TERM, { classesStart: null });
+    var r = qRun(d, qMeta(d));
+    var err = r.model.problems.filter(function(p){ return p.level === "error" && p.code === "S3"; }).length;
+    var noQ = !r.model.questions.some(function(q){ return q.p && q.p.level === "error"; });
+    return { ok: err === 1 && noQ && r.model.problems.some(function(p){ return p.code === "D2" && p.field === "term"; }), detail: "S3 errors " + err }; });
+  t("questions: X2 busy-week info has no target and stays in Problems", function(){
+    var d = qFx(), r = qRun(d, qMeta(d)), x2 = r.probs.filter(function(p){ return p.code === "X2"; });
+    return { ok: x2.length > 0 && x2.every(function(p){ return r.model.problems.indexOf(p) >= 0; }), detail: "X2 " + x2.length }; });
+  t("questions: warning with an unresolvable field (S4 components.a) stays in Problems", function(){
+    var d = qFx(); d.course.components[0].count = 5; d.course.components[0].itemLabels.push("Extra");
+    var r = qRun(d, qMeta(d)), s4 = r.probs.filter(function(p){ return p.code === "S4"; });
+    return { ok: s4.length === 1 && r.model.problems.indexOf(s4[0]) >= 0 && focusTarget(s4[0]) === null, detail: "S4 " + s4.length }; });
+  t("questions: answered counting and the card text (4 of 6 answered)", function(){
+    var d = qFx(), m = qMeta(d), r0 = qRun(d, m);
+    d.items[3].date = "2026-10-08"; m.unk[0] = "added"; m.unkRef[0] = "final-exam"; d.items[2].date = "2026-12-10";
+    m.unk[1] = "blank"; m.confirmed.lab1 = true;
+    var d4 = r0.probs.filter(function(p){ return p.code === "D4"; })[0]; m.accepted.push(d4.key);
+    var r = qRun(d, m), card = questionsCard(d, m, r.model), txt = card.textContent;
+    return { ok: r0.model.total === 6 && r0.model.answered === 0 && r.model.answered === 4 && r.model.total === 5 && txt.indexOf("4 of 5 answered") >= 0 && txt.indexOf("1 unanswered") >= 0 && txt.indexOf("Answered (4)") >= 0,
+      detail: r.model.answered + "/" + r.model.total + " " + txt.slice(0, 90) }; });
+  t("questions: card rows offer the actions the spec names", function(){
+    var d = qFx(), m = qMeta(d), card = questionsCard(d, m, qRun(d, m).model);
+    var has = function(l){ return hasBtn(card, l); };
+    return { ok: card.getAttribute("aria-label") === "Questions for you" && has("Still don't know") && has("Add date(s)") && has("Check it") && has("Looks right") && has("Fix it") && has("That's right") && !has("Leave blank"),
+      detail: [].map.call(card.querySelectorAll("button"), function(b){ return b.textContent; }).join("|") }; });
+  t("questions: unknown picker offers no date controls when every item is dated", function(){
+    var d = qFx(); d.items.forEach(function(it){ it.date = it.date || "2026-10-09"; });
+    var m = qMeta(d), card = questionsCard(d, m, qRun(d, m).model);
+    return { ok: hasBtn(card, "Still don't know") && !hasBtn(card, "Add date(s)") && card.querySelector("input[type=date]") === null, detail: "controls shown" }; });
+  t("questions: Save stays enabled with unanswered questions and the hint says so", function(){
+    var d = qFx(), m = qMeta(d), r = qRun(d, m), s = reviewSummary(d, undefined, false, 0, 0, r.model, function(){}, function(){});
+    var save = [].filter.call(s.querySelectorAll("button"), function(b){ return b.textContent === "Save course"; })[0];
+    var withErr = reviewSummary(d, undefined, false, 1, 0, r.model, function(){}, function(){});
+    var save2 = [].filter.call(withErr.querySelectorAll("button"), function(b){ return b.textContent === "Save course"; })[0];
+    return { ok: !!save && !save.disabled && s.textContent.indexOf("6 questions unanswered — you can still save") >= 0 && save2.disabled, detail: s.textContent }; });
+  t("focusTarget: every ITEM_FIELDS entry exists on a built item row; components.k.weight and passRules[0] resolve; ref, window and term do not", function(){
+    var dr = qFx(), it = qItem("rel", "Relative item", { relative: { sectionType: "lab", week: 3, offsetHours: 24 } }); dr.items.push(it);
+    var row = itemEditRow(it, 5, dr, qMeta(dr)), miss = ITEM_FIELDS.filter(function(f){ return !row.querySelector('[data-ref="rel"][data-field="' + f + '"]'); });
+    var ok2 = focusTarget({ ref: "rel", field: "date" }) === '[data-ref="rel"][data-field="date"]' && focusTarget({ ref: null, field: "components.a.weight" }) === '[data-path="components.a.weight"]'
+      && focusTarget({ ref: null, field: "passRules[0]" }) === '[data-path="passRules[0]"]';
+    var nul = [{ ref: "x", field: "ref" }, { ref: "x", field: "window" }, { ref: null, field: "term" }, { ref: null, field: "components.a" }, { ref: null, field: "components.a.best" }, { ref: null, field: "unknowns[0]" }].every(function(p){ return focusTarget(p) === null; });
+    return { ok: miss.length === 0 && ok2 && nul, detail: "missing " + miss.join() + " ok2 " + ok2 + " nul " + nul }; });
+  t("confirm: applyCourseSave keeps confidence \"low\" on a confirmed item and stores course.confirmed", function(){
+    var d = qFx(), m = qMeta(d); m.confirmed.lab1 = true; m.confirmed.ghost = true;
+    try { applyCourseSave(d, "QX1000", undefined, m); var c = state.courses.QX1000, lab = c.items.filter(function(i){ return i.ref === "lab1"; })[0];
+      return { ok: lab.confidence === "low" && JSON.stringify(c.confirmed) === '["lab1"]', detail: lab.confidence + " " + JSON.stringify(c.confirmed) }; }
+    finally { delete state.courses.QX1000; } });
+  t("confirm: newReviewMeta seeds confirmed when editing only, and the row hint says you confirmed it", function(){
+    var d = qFx(), ex = { template: d.course, items: d.items, unknowns: [], warnings: [], accepted: [], section: {}, confirmed: ["lab1"] };
+    var ed = newReviewMeta(d, "QX1000", ex, true), re = newReviewMeta(d, "QX1000", ex, false);
+    var hint = itemEditRow(d.items[4], 4, d, ed).textContent, hint2 = itemEditRow(d.items[4], 4, d, re).textContent;
+    return { ok: ed.confirmed.lab1 === true && !re.confirmed.lab1 && hint.indexOf("you confirmed it") >= 0 && hint2.indexOf("you confirmed it") < 0, detail: "edit " + JSON.stringify(ed.confirmed) + " re " + JSON.stringify(re.confirmed) }; });
+  t("resume: a v2-era meta (no confirmed/unkRef, unk: []) normalises and the model runs", function(){
+    var d = qFx(), m = { key: "QX1000", accepted: [], section: {}, unk: [], removeRefs: {} };
+    normalizeReviewMeta(m, d);
+    var mod = reviewModel(d, Validate.run(d, { term: SAMPLE_TERM, others: [] }), m);
+    return { ok: m.unk.join() === "open,open,open" && typeof m.confirmed === "object" && typeof m.unkRef === "object" && mod.total === 6 && mod.answered === 0, detail: JSON.stringify(m) + " total " + mod.total }; });
+  var fxPrompt = function(mut){
+    var d = qFx(), m = qMeta(d); if (mut) mut(d, m);
+    var ps = Validate.run(d, { term: SAMPLE_TERM, others: [] });
+    return { d: d, m: m, ps: ps, text: buildFixupPrompt(d, ps, m) };
+  };
+  var shown = function(p){ return (p.level === "error" ? "Error" : p.level === "warning" ? "Warning" : "Info") + ": " + p.message + (p.ref ? " (" + p.ref + ")" : ""); };
+  t("fixup prompt: task line, every non-C4-unknown problem as shown, every unknown, every low item with its source", function(){
+    var f = fxPrompt(), miss = [];
+    if (f.text.indexOf("You converted a course outline into the JSON below. Fix the problems listed, using the original outline if you still have it in this conversation.") !== 0) miss.push("task line");
+    f.ps.forEach(function(p){
+      var isUnk = p.code === "C4" && /^unknowns\[/.test(p.field), has = f.text.indexOf(shown(p)) >= 0;
+      if (isUnk ? f.text.indexOf(p.message) < 0 : !has) miss.push(p.code + ":" + p.field);
+    });
+    f.d.unknowns.forEach(function(u){ if (f.text.indexOf("Unknown: " + u) < 0) miss.push("unknown " + u); });
+    if (f.text.indexOf("Lab 1 report (lab1) — source: Schedule, Week 5") < 0) miss.push("low item");
+    return { ok: miss.length === 0, detail: "missing " + miss.join(" | ") }; });
+  t("fixup prompt: each unknown is listed once (the C4 echo is left out)", function(){
+    var f = fxPrompt(), n = f.text.split("Final exam date, time and location (TBA)").length - 1 - 1;   // one more occurrence lives in the JSON
+    return { ok: n === 1 && f.text.indexOf("Unknown: Unknown:") < 0, detail: "list occurrences " + n }; });
+  t("fixup prompt: carries the no-invention rule and the KEEP EVERY ITEM'S ref rule", function(){
+    var f = fxPrompt();
+    return { ok: f.text.indexOf("never invent a date, time, weight or name") >= 0 && f.text.indexOf("KEEP EVERY ITEM'S \"ref\" EXACTLY AS-IS") >= 0 && f.text.indexOf("stays in \"unknowns\"") >= 0
+      && f.text.indexOf("COMPLETE course JSON") >= 0 && f.text.indexOf("no commentary") >= 0, detail: "rule text missing" }; });
+  t("fixup prompt: has the SCHEMA block from the import prompt and a draft JSON that Parse.run reads back to the same code and refs", function(){
+    var f = fxPrompt(), json = f.text.slice(f.text.indexOf("CURRENT COURSE JSON\n") + 20), r = Parse.run(json);
+    var refs = function(d){ return d.items.map(function(i){ return i.ref; }).join(); };
+    return { ok: f.text.indexOf("\"unknowns\": [string]") >= 0 && f.text.indexOf("\"confidence\": \"high\"|\"low\"") >= 0 && f.text.indexOf("STRICT RULES") < 0 && f.text.indexOf("NOTES\n") < 0
+      && r.ok && r.draft.course.code === "QX*1000" && refs(r.draft) === refs(f.d) && r.draft.unknowns.length === 3, detail: r.ok ? "round trip differs" : r.error.msg }; });
+  t("fixup prompt: sections in spec order (task < problems < rules < JSON) and no {{ left", function(){
+    var f = fxPrompt(), i = ["You converted a course outline", "PROBLEMS TO FIX", "RULES", "IMPORT FORMAT", "CURRENT COURSE JSON"].map(function(s){ return f.text.indexOf(s); });
+    var inOrder = i.every(function(x, k){ return x >= 0 && (k === 0 || x > i[k - 1]); });
+    return { ok: inOrder && f.text.indexOf("{{") === -1, detail: i.join() }; });
+  t("fixup prompt: answer states appear as facts, nothing else is added", function(){
+    var f0 = fxPrompt(), d4 = f0.ps.filter(function(p){ return p.code === "D4"; })[0];
+    var f = fxPrompt(function(d, m){ m.accepted.push(d4.key); m.unk[1] = "blank"; m.confirmed.lab1 = true; });
+    return { ok: f.text.indexOf("(the student says this is correct — leave it)") >= 0 && f.text.indexOf("(the student doesn't know either — keep it in unknowns)") >= 0
+      && f.text.indexOf("(the student says this is right)") >= 0 && f0.text.indexOf("(the student") < 0, detail: "annotations" }; });
+  t("fixup prompt: a draft without a term keeps term null (no invention)", function(){
+    var f = fxPrompt(function(d){ d.term = null; }), r = Parse.run(f.text.slice(f.text.indexOf("CURRENT COURSE JSON\n") + 20));
+    return { ok: r.ok && r.draft.term === null, detail: "term " + JSON.stringify(r.draft && r.draft.term) }; });
+  t("diffLines: moved, new, changed and missing items by ref", function(){
+    var o = [qItem("a", "Alpha", { date: "2026-10-01" }), qItem("b", "Beta"), qItem("c", "Gamma")], n = [qItem("a", "Alpha", { date: "2026-10-03" }), qItem("b", "Beta", { weight: 5 }), qItem("d", "Delta")];
+    var r = diffLines(o, n);
+    return { ok: r.lines.length === 3 && /moved/.test(r.lines[0]) && /changed/.test(r.lines[1]) && r.lines[2] === "New: Delta" && r.missing.length === 1 && r.missing[0].ref === "c", detail: r.lines.join(" | ") }; });
+  var fixedJson = function(mut){
+    var d = qFx(); mut(d);
+    return "Here is the fixed data:\n```json\n" + JSON.stringify({ schemaVersion: 1, term: d.term, course: d.course, items: d.items, unknowns: d.unknowns, warnings: d.warnings }) + "\n```";
+  };
+  t("paste-back: same key replaces the draft; section, accepted and unk (by text) carry over; lines name the change", function(){
+    var d = qFx(), m = qMeta(d); m.section = { lab: "104" }; m.accepted = ["k1"]; m.unk = ["open", "blank", "added"]; m.unkRef[2] = "q10"; m.confirmed.lab1 = true; m.confirmed.gone = true;
+    d.items[1].date = "2026-10-20";
+    var txt = fixedJson(function(x){ x.items[1].date = "2026-10-20"; x.items[2].date = "2026-12-10"; x.unknowns = ["TA names were not in the outline", "Quiz Q10 date (opens Week 12)", "A brand new question?"]; });
+    var res = pasteBackCore(txt, d, m);
+    return { ok: res.ok && res.draft.items[2].date === "2026-12-10" && res.meta.section.lab === "104" && res.meta.accepted[0] === "k1" && res.meta.key === "QX1000"
+      && res.meta.unk.join() === "blank,added,open" && res.meta.unkRef[1] === "q10" && res.meta.confirmed.lab1 === true && !res.meta.confirmed.gone
+      && res.lines.length === 1 && /Final exam/.test(res.lines[0]) && /moved no date/.test(res.lines[0]) && res.draft !== d && res.meta !== m,
+      detail: res.ok ? res.lines.join(" | ") + " unk " + res.meta.unk.join() : JSON.stringify(res) }; });
+  t("paste-back: an \"added\" answer drops back to open when the AI's data no longer has that date", function(){
+    var d = qFx(), m = qMeta(d); m.unk = ["open", "open", "added"]; m.unkRef[2] = "q10";
+    var res = pasteBackCore(fixedJson(function(){}), d, m);
+    return { ok: res.ok && res.meta.unk[2] === "open" && !res.meta.unkRef[2], detail: res.ok ? res.meta.unk.join() : "not ok" }; });
+  t("paste-back: items the AI dropped are listed as \"Not in the AI's data\"", function(){
+    var d = qFx(), m = qMeta(d), res = pasteBackCore(fixedJson(function(x){ x.items = x.items.filter(function(i){ return i.ref !== "proj"; }); }), d, m);
+    return { ok: res.ok && res.lines.indexOf("Not in the AI's data: Project") >= 0, detail: res.ok ? res.lines.join(" | ") : "not ok" }; });
+  t("paste-back: wrong course code is rejected and the draft and meta are untouched", function(){
+    var d = qFx(), m = qMeta(d), before = JSON.stringify([d, m]);
+    var res = pasteBackCore(fixedJson(function(x){ x.course.code = "QY*1000"; }), d, m);
+    return { ok: res.ok === false && res.wrongKey && res.wrongKey.got === "QY*1000" && res.wrongKey.want === "QX*1000" && !res.draft && JSON.stringify([d, m]) === before, detail: JSON.stringify(res.wrongKey) }; });
+  t("paste-back: unparseable text gives the import parse error and leaves the draft untouched", function(){
+    var d = qFx(), m = qMeta(d), before = JSON.stringify([d, m]);
+    var res = pasteBackCore('{"schemaVersion": 1,, }', d, m), empty = pasteBackCore("   ", d, m);
+    return { ok: res.ok === false && !!res.error && !!res.error.msg && empty.ok === false && !!empty.error && JSON.stringify([d, m]) === before, detail: res.error ? res.error.msg : "no error" }; });
+  t("paste-back: course key compares by normalised key (qx 1000 = QX*1000)", function(){
+    var d = qFx(), m = qMeta(d), res = pasteBackCore(fixedJson(function(x){ x.course.code = "qx 1000"; }), d, m);
+    return { ok: res.ok === true, detail: JSON.stringify(res.wrongKey || res.error) }; });
+  t("paste-back: re-import of a saved course keeps tick, note, doneAt and mark through applyCourseSave", function(){
+    var f = editFx(), nd = newDate(f.it.date);
+    var src = { schemaVersion: 1, term: null, course: JSON.parse(JSON.stringify(f.draft.course)), items: JSON.parse(JSON.stringify(f.draft.items)), unknowns: [], warnings: [] };
+    src.items.filter(function(i){ return i.ref === f.it.ref; })[0].date = nd;
+    var res = pasteBackCore(JSON.stringify(src), f.draft, f.meta);
+    if (!res.ok) return { ok: false, detail: JSON.stringify(res.error || res.wrongKey) };
+    applyCourseSave(res.draft, f.key, f.existing, res.meta);
+    var now = state.courses[f.key].items.filter(function(i){ return i.ref === f.it.ref; })[0];
+    return { ok: now.date === nd && res.lines.length === 1 && state.checks[f.id] === true && state.notes[f.id] === "my note" && state.doneAt[f.id] === 1234 && state.grades[f.key][f.it.comp][f.it.index] === "80"
+      && state.courses[f.key].section.lab === "103" && state.custom.length === 1, detail: "date " + now.date + " tick " + state.checks[f.id] + " lines " + res.lines.join("|") }; });
+  t("paste-back: parseErrorCard offers Copy fix prompt (shared with the Add screen)", function(){
+    var c = parseErrorCard({ msg: "boom", line: 2, col: 3, snippet: "x" });
+    return { ok: hasBtn(c, "Copy fix prompt") && c.textContent.indexOf("Couldn't read that: boom") >= 0 && c.textContent.indexOf("Line 2, column 3") >= 0, detail: c.textContent }; });
+  t("resume: persistReview keeps the new meta fields in the whitelist", function(){
+    return { ok: /confirmed: view\.meta\.confirmed, unkRef: view\.meta\.unkRef/.test(persistReview.toString()), detail: "whitelist lacks confirmed/unkRef" }; });
   state = saved;
   // palette contrast (PLAN 8A): current theme only
   var cs = getComputedStyle(document.documentElement), hx = function(v){ v = v.trim().replace("#",""); return [0,2,4].map(function(i){ return parseInt(v.substr(i,2),16)/255; }); };
