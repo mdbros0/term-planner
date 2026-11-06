@@ -142,6 +142,7 @@ input[type=checkbox]{width:22px;height:22px;accent-color:var(--accent);flex:0 0 
 .item .when{text-align:right;font-size:.9rem;min-width:84px}
 .item .when b{display:block}
 .item .t{overflow-wrap:anywhere}
+.item .edit-btn{padding:4px 10px;min-height:32px;font-size:.85rem;margin-left:6px}
 /* Undated or long-label rows: label on its own full-width line under the title, indented past the checkbox (22px + 10px gap) */
 .item.long{flex-wrap:wrap}
 .item .when-line{flex:1 0 100%;padding-left:32px;font-size:.9rem;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
@@ -1603,7 +1604,9 @@ UI.itemRow = function(e, opts){
       el("div", { class: "hint" }, [
         overdue ? el("span", { class: "over", text: "Overdue: " }) : null,
         showDue ? "Due " + e.dateLabel + " " : "",
-        UI.tagTier(e.tier) ]),
+        UI.tagTier(e.tier),
+        opts.edit === false ? null : el("button", { class: "btn ghost edit-btn", type: "button", "data-action": "edit-item", "aria-label": "Edit " + e.title,
+          on: { click: function(){ openItemEditor(e.id); } }, text: "Edit" }) ]),
       win ]),
     long ? el("div", { class: "when-line" }, [el("span", { text: label }), UI.weightBadge(e.weight)])
       : el("div", { class: "when" }, [when, UI.weightBadge(e.weight)])
@@ -1657,7 +1660,161 @@ function openTask(id){
       UI.toggleDone(id, !e.done); openTask(id); render(); } }, text: e.done ? "Mark not done" : "Mark done" }) ]));
   if (e.courseKey && state.courses[e.courseKey]) wrap.appendChild(el("p", { class: "hint" }, [
     el("a", { href: "#courses", on: { click: function(ev){ ev.preventDefault(); UI.closeSheet(); view.course = e.courseKey; UI.setTab("courses"); } }, text: "Course info" }) ]));
+  wrap.appendChild(el("div", { class: "row" }, [
+    el("button", { class: "btn ghost", "data-action": "edit-item", on: { click: function(){ openItemEditor(id); } }, text: "Edit" }) ]));
   UI.openSheet(e.title, wrap);
+}
+/* ---- Inline edit of one item (v4). Entry -> source: course entry = state.courses[courseKey].items by ref;
+   custom entry = state.custom by id. Writes go to the source record, never to the derived entry or e.item. ---- */
+function entrySource(e){
+  if (!e) return null;
+  if (e.isCustom) {
+    var cu = (state.custom || []).filter(function(x){ return x.id === e.id; })[0];
+    return cu ? { kind: "custom", task: cu, id: e.id } : null;
+  }
+  var c = state.courses[e.courseKey], it = c && (c.items || []).filter(function(i){ return i.ref === e.ref; })[0];
+  return it ? { kind: "course", key: e.courseKey, course: c, item: it, id: e.courseKey + ":" + e.ref } : null;
+}
+var TIERS = ["graded", "must", "study"];
+/* Validates every value first, then writes; returns { ok, errors }. Never saves or renders. ref/id are never touched.
+   A relative item (no date, has a relative rule) ignores date/time so the derivation is not silently overridden. */
+function applyItemEdit(e, vals){
+  var src = entrySource(e), errors = [], w = {};
+  if (!src) return { ok: false, errors: ["This item no longer exists."] };
+  vals = vals || {};
+  var title = String(vals.title === undefined ? "" : vals.title).trim();
+  if (!title) errors.push("Give the item a title.");
+  w.title = title;
+  var rel = src.kind === "course" && !src.item.date && !!src.item.relative;
+  if (!rel && vals.date !== undefined) {
+    if (vals.date && !Dt.ok(vals.date)) errors.push("That date isn't valid."); else w.date = vals.date || null;
+  }
+  if (src.kind === "custom") {
+    if (vals.course !== undefined) {
+      if (vals.course !== "ALL" && !state.courses[vals.course]) errors.push("Pick a course from the list."); else w.course = vals.course;
+    }
+  } else {
+    if (vals.tier !== undefined) { if (TIERS.indexOf(vals.tier) < 0) errors.push("Type must be graded, must or study."); else w.tier = vals.tier; }
+    if (!rel && vals.time !== undefined) {
+      if (vals.time && !/^\d{2}:\d{2}$/.test(vals.time)) errors.push("That time isn't valid."); else w.time = vals.time || null;
+    }
+    if (vals.weight !== undefined) {
+      var ws = String(vals.weight === null ? "" : vals.weight).trim(), wn = Number(ws);
+      if (ws === "") w.weight = null;
+      else if (!isFinite(wn) || wn < 0 || wn > 100) errors.push("Weight must be a number from 0 to 100."); else w.weight = wn;
+    }
+    if (vals.dateLabel !== undefined) w.dateLabel = String(vals.dateLabel || "").trim() || null;
+  }
+  if (errors.length) return { ok: false, errors: errors };
+  if (src.kind === "custom") {
+    src.task.t = w.title;
+    if ("date" in w) src.task.d = w.date;
+    if ("course" in w) src.task.c = w.course;
+  } else {
+    var it = src.item;
+    it.title = w.title;
+    ["date", "time", "tier", "weight", "dateLabel"].forEach(function(k){ if (k in w) it[k] = w[k]; });
+  }
+  return { ok: true, patch: w };
+}
+function deleteConfirmText(e){
+  var src = entrySource(e);
+  if (!src) return "Delete \"" + (e && e.title) + "\"?";
+  if (src.kind === "custom") return "Delete task \"" + src.task.t + "\"?";
+  var refs = {}; refs[e.ref] = true;
+  var risk = deletionRisks(src.key, src.course, [], refs)[0];
+  return "Delete \"" + src.item.title + "\" from " + UI.courseCode(src.key) + "?" + (risk ? "\nThis item " + riskText(risk) + ". Its tick and note are removed." : "");
+}
+/* Removes the source record and its tick/note/doneAt. Marks stay in state.grades (they live in component slots). */
+function removeEntryCore(e){
+  var src = entrySource(e);
+  if (!src) return false;
+  if (src.kind === "custom") state.custom = state.custom.filter(function(x){ return x.id !== e.id; });
+  else {
+    src.course.items = src.course.items.filter(function(i){ return i.ref !== e.ref; });
+    if (src.course.confirmed) src.course.confirmed = src.course.confirmed.filter(function(r){ return r !== e.ref; });
+  }
+  delete state.checks[src.id]; delete state.notes[src.id]; delete state.doneAt[src.id];
+  return true;
+}
+/* Keeps an unfinished Edit-course draft (same course, editMode) in step with an inline edit or delete, so a later
+   Save of that stale draft does not revert it. Re-import drafts are left alone (their diff shows the change). */
+function syncPendingDraft(key, ref, patch){
+  var n = 0;
+  var seen = [];
+  [state.reviewDraft, view.draft && view.meta ? { key: view.meta.key, editMode: !!view.editMode, draft: view.draft, meta: view.meta } : null].forEach(function(rd){
+    if (!rd || !rd.draft || rd.key !== key || !rd.editMode || seen.indexOf(rd.draft) >= 0) return;
+    seen.push(rd.draft);
+    var items = rd.draft.items || [], i = -1;
+    items.forEach(function(x, k){ if (x && x.ref === ref) i = k; });
+    if (i < 0) return;
+    if (patch === null) {
+      items.splice(i, 1);
+      if (rd.meta) { rd.meta.removeRefs = rd.meta.removeRefs || {}; rd.meta.removeRefs[ref] = true; }
+    } else Object.keys(patch).forEach(function(k){ items[i][k] = patch[k]; });
+    n++;
+  });
+  return n;
+}
+function itemEditorNode(e){
+  var src = entrySource(e), wrap = el("div", { style: "margin-top:10px" });
+  if (!src) { wrap.appendChild(el("p", { class: "muted", text: "This item no longer exists." })); return wrap; }
+  var custom = src.kind === "custom", it = src.item;
+  var rel = !custom && !it.date && !!it.relative;
+  var f = {};
+  f.title = el("input", { type: "text", "aria-label": "Title", value: custom ? src.task.t : it.title });
+  wrap.appendChild(el("label", { class: "f" }, [el("span", { text: "Title" }), f.title]));
+  if (custom) {
+    f.course = el("select", { "aria-label": "Course" }, [el("option", { value: "ALL", text: "All / personal" })].concat(
+      Object.keys(state.courses).map(function(k){ return el("option", { value: k, selected: src.task.c === k, text: UI.courseCode(k) }); })));
+    if (src.task.c === "ALL" || !state.courses[src.task.c]) f.course.value = "ALL";
+    wrap.appendChild(el("label", { class: "f" }, [el("span", { text: "Course" }), f.course]));
+  } else {
+    f.tier = el("select", { "aria-label": "Type" }, TIERS.map(function(t){ return el("option", { value: t, selected: it.tier === t, text: t }); }));
+    wrap.appendChild(el("label", { class: "f" }, [el("span", { text: "Type" }), f.tier]));
+  }
+  f.date = el("input", { type: "date", "aria-label": "Date", value: (custom ? src.task.d : it.date) || "", disabled: rel });
+  wrap.appendChild(el("label", { class: "f" }, [el("span", { text: "Date" }), f.date]));
+  if (!custom) {
+    f.time = el("input", { type: "time", "aria-label": "Time", value: it.time || "", disabled: rel });
+    wrap.appendChild(el("label", { class: "f" }, [el("span", { text: "Time" }), f.time]));
+  }
+  if (rel) {
+    var r = it.relative, resolved = e.date ? Dt.short(e.date) + (e.time ? " · " + Dt.timeLabel(e.time) : "") : e.relativeReason;
+    wrap.appendChild(el("p", { class: "hint" }, [
+      "Due " + (r.offsetHours || 0) + "h after your " + r.sectionType + " (week " + r.week + "). The date follows your " + r.sectionType + " section" + (e.date ? ": " + resolved + ". " : " (" + resolved + "). "),
+      e.relativeReason ? el("a", { href: "#courses", on: { click: function(ev){ ev.preventDefault(); UI.closeSheet(); view.course = e.courseKey; UI.setTab("courses"); } }, text: "Pick your section" }) : null ]));
+  }
+  if (!custom) {
+    f.weight = el("input", { type: "number", min: "0", max: "100", step: "any", "aria-label": "Weight %", value: it.weight === null || it.weight === undefined ? "" : String(it.weight) });
+    wrap.appendChild(el("label", { class: "f" }, [el("span", { text: "Weight %" }), f.weight]));
+    if (it.tier === "graded") wrap.appendChild(el("p", { class: "hint", text: "Grades use the course's grade breakdown. Change component weights in Edit course." }));
+    f.dateLabel = el("input", { type: "text", "aria-label": "Date label", value: it.dateLabel || "" });
+    wrap.appendChild(el("label", { class: "f" }, [el("span", { text: "Date label" }), f.dateLabel]));
+  }
+  var err = el("p", { class: "err", role: "alert" });
+  wrap.appendChild(err);
+  wrap.appendChild(el("div", { class: "row" }, [
+    el("button", { class: "btn", "data-action": "save-item", on: { click: function(){
+      var vals = { title: f.title.value, date: f.date.value };
+      if (custom) vals.course = f.course.value;
+      else { vals.tier = f.tier.value; vals.time = f.time.value; vals.weight = f.weight.value; vals.dateLabel = f.dateLabel.value; }
+      var res = applyItemEdit(e, vals);
+      if (!res.ok) { err.textContent = res.errors.join(" "); return; }
+      if (!custom) syncPendingDraft(src.key, e.ref, res.patch);
+      Store.save(); UI.closeSheet(); UI.toast("Saved"); render(); } }, text: "Save" }),
+    el("button", { class: "btn ghost", on: { click: function(){ UI.closeSheet(); } }, text: "Cancel" }),
+    el("button", { class: "btn danger", "data-action": "delete-item", on: { click: function(){
+      if (!window.confirm(deleteConfirmText(e))) return;
+      removeEntryCore(e);
+      if (!custom) syncPendingDraft(src.key, e.ref, null);
+      Store.save(); UI.closeSheet(); render(); } }, text: "Delete" }) ]));
+  return wrap;
+}
+function openItemEditor(id){
+  var e = Model.build().filter(function(x){ return x.id === id; })[0];
+  if (!e) return;
+  UI.openSheet("Edit: " + e.title, itemEditorNode(e));
 }
 /* ===== JS 10: router, Today, Checklist ===== */
 /* Header Settings button and the sidebar Settings button (shown from 1024px) both toggle the Settings screen. */
@@ -1732,6 +1889,7 @@ function viewToday(){
     .sort(cmpItems).slice(0, 6);
   if (big.length) wrap.appendChild(el("section", { class: "card", "aria-label": "Big deadlines" }, [
     el("h2", { text: "Big deadlines coming up" }), big.map(function(e){ return UI.itemRow(e); }) ]));
+  wrap.appendChild(addTaskForm());
   var cls = [];
   [["Today", today], ["Tomorrow", Dt.add(today, 1)]].forEach(function(p){
     cls = cls.concat(classRows(Term.classesOn(T, p[1]), function(x){
@@ -1843,15 +2001,26 @@ function checklistRow(e){
   if (!e.isCustom) return row;
   return el("div", { class: "row", style: "align-items:flex-start" }, [ el("div", { class: "grow" }, [row]),
     el("button", { class: "btn ghost", "aria-label": "Delete task " + e.title, on: { click: function(){
-      state.custom = state.custom.filter(function(c){ return c.id !== e.id; }); delete state.checks[e.id]; Store.save(); render(); } }, text: "×" }) ]);
+      removeEntryCore(e); Store.save(); render(); } }, text: "×" }) ]);
 }
-function addTaskForm(){
+/* Builds a custom task record, or returns the validation error. Ids are never reused. */
+function customTaskFrom(title, course, date){
+  var t = String(title || "").trim();
+  if (!t) return { ok: false, error: "Give the task a title." };
+  if (date && !Dt.ok(date)) return { ok: false, error: "That date isn't valid." };
+  var base = "c" + Date.now(), id = base, n = 1;
+  while ((state.custom || []).some(function(c){ return c.id === id; })) id = base + "-" + n++;
+  return { ok: true, task: { id: id, t: t, c: course, d: date || null } };
+}
+/* opts.date prefills the date input (Calendar day view); opts.open opens the card. No opts = the Checklist form. */
+function addTaskForm(opts){
+  opts = opts || {};
   var title = el("input", { type: "text", "aria-label": "Task title", placeholder: "Task title" });
-  var date = el("input", { type: "date", "aria-label": "Date (optional)" });
+  var date = el("input", { type: "date", "aria-label": "Date (optional)", value: opts.date || "" });
   var course = el("select", { "aria-label": "Course" }, [el("option", { value: "ALL", text: "All / personal" })].concat(
     Object.keys(state.courses).map(function(k){ return el("option", { value: k, text: UI.courseCode(k) }); })));
   var err = el("p", { class: "err", role: "alert" });
-  return el("details", { class: "card" }, [
+  return el("details", { class: "card", "data-role": "add-task", open: opts.open ? true : null }, [
     el("summary", { style: "cursor:pointer;font-weight:700", text: "+ Add task" }),
     el("div", { style: "margin-top:8px" }, [
       el("label", { class: "f" }, [el("span", { text: "Title" }), title]),
@@ -1859,11 +2028,10 @@ function addTaskForm(){
       el("label", { class: "f" }, [el("span", { text: "Date (optional)" }), date]),
       err,
       el("button", { class: "btn", on: { click: function(){
-        var t = title.value.trim();
-        if (!t) { err.textContent = "Give the task a title."; return; }
-        if (date.value && !Dt.ok(date.value)) { err.textContent = "That date isn't valid."; return; }
-        state.custom.push({ id: "c" + Date.now(), t: t, c: course.value, d: date.value || null });
-        Store.save(); UI.toast("Task added"); render(); } }, text: "Add task" }) ]) ]);
+        var r = customTaskFrom(title.value, course.value, date.value);
+        if (!r.ok) { err.textContent = r.error; return; }
+        state.custom.push(r.task);
+        Store.save(); UI.toast(state.mode === "graded" ? "Task added (custom tasks show in Essentials and Everything)" : "Task added"); render(); } }, text: "Add task" }) ]) ]);
 }
 /* ===== JS 11: Calendar, Grades, Courses ===== */
 function monthOf(iso){ return iso.slice(0, 7); }
@@ -1917,7 +2085,8 @@ function viewCalendar(){
     wrap.appendChild(el("section", { class: "card", "aria-label": "Selected day" }, [
       el("h2", { text: Dt.short(sd) + (T.inBreak(sd) ? " · " + T.inBreak(sd).label : "") }),
       cls.length ? el("div", null, [el("h3", { style: "font-size:1rem", text: "Classes" }), cls]) : null,
-      dayItems.length ? dayItems.map(function(e){ return UI.itemRow(e); }) : el("p", { class: "muted", text: "Nothing due this day in this mode." }) ]));
+      dayItems.length ? dayItems.map(function(e){ return UI.itemRow(e); }) : el("p", { class: "muted", text: "Nothing due this day in this mode." }),
+      addTaskForm({ date: sd }) ]));
   }
   wrap.appendChild(el("section", { class: "card", "aria-label": "Legend" }, [el("h2", { text: "Course colours" }),
     Object.keys(state.courses).map(function(k){ return el("div", { class: "row" }, [el("span", { class: UI.courseClass(k), style: "padding:2px 8px;border-radius:5px", text: UI.courseCode(k) }), el("span", { class: "muted", text: "Filled dot = due; outlined = graded" })]); }) ]));
@@ -3342,6 +3511,113 @@ function runSelfTests(){
   t("edit: Manage card offers Edit course", function(){
     var v = view.course; view.course = "DEMO3530";
     try { return { ok: hasBtn(viewCourses(), "Edit course"), detail: "button missing" }; } finally { view.course = v; } });
+  // inline edit (v4): each test runs on a snapshot of the sandboxed state and restores it; none calls Store.save() or render()
+  var KEYS = ["courses", "checks", "notes", "doneAt", "grades", "custom", "reviewDraft"];
+  var tx = function(name, fn){ t(name, function(){
+    var snap = JSON.stringify(KEYS.map(function(k){ return state[k]; })), cf = window.confirm, sec = state.mode;
+    try { return fn(); } finally { var s = JSON.parse(snap); KEYS.forEach(function(k, i){ state[k] = s[i]; }); window.confirm = cf; state.mode = sec; } }); };
+  var entryOf = function(id){ return Model.build().filter(function(x){ return x.id === id; })[0]; };
+  var ieFx = function(){
+    var key = "DEMO3530", c = state.courses[key];
+    var it = c.items.filter(function(i){ return i.tier === "graded" && i.date && i.comp; })[0], id = key + ":" + it.ref;
+    state.checks[id] = true; state.notes[id] = "n"; state.doneAt[id] = 99;
+    state.grades[key] = {}; state.grades[key][it.comp] = []; state.grades[key][it.comp][it.index] = "80";
+    return { key: key, c: c, it: it, id: id, e: entryOf(id) };
+  };
+  var labels = function(n){ return [].map.call(n.querySelectorAll("label.f > span"), function(s){ return s.textContent; }).join("|"); };
+  tx("edit map: course entry → state.courses[key].items by ref", function(){
+    var f = ieFx(), s = entrySource(f.e);
+    return { ok: !!s && s.kind === "course" && s.item === f.c.items.filter(function(i){ return i.ref === f.it.ref; })[0] && s.id === f.id && s.key === f.key, detail: JSON.stringify(s && s.kind) }; });
+  tx("edit map: custom entry → state.custom by id (course ALL → courseKey null)", function(){
+    state.custom = [{ id: "cx1", t: "mine", c: "ALL", d: null }];
+    var e = entryOf("cx1"), s = entrySource(e);
+    return { ok: e.courseKey === null && !!s && s.kind === "custom" && s.task === state.custom[0] && entrySource({ id: "nope", isCustom: true }) === null, detail: "key " + e.courseKey }; });
+  tx("edit: write-back changes source, ref intact, tick/note/doneAt/mark still keyed", function(){
+    var f = ieFx(), nd = Dt.add(f.it.date, 9), r = applyItemEdit(f.e, { title: "Renamed", tier: "must", date: nd, time: "08:15", weight: "12.5", dateLabel: "Lbl" });
+    var s = f.c.items.filter(function(i){ return i.ref === f.it.ref; })[0], e2 = entryOf(f.id);
+    return { ok: r.ok && s === f.it && s.ref === f.it.ref && s.title === "Renamed" && s.tier === "must" && s.date === nd && s.time === "08:15" && s.weight === 12.5 && s.dateLabel === "Lbl" &&
+      state.checks[f.id] === true && state.notes[f.id] === "n" && state.doneAt[f.id] === 99 && state.grades[f.key][f.it.comp][f.it.index] === "80" &&
+      !!e2 && e2.date === nd && e2.done === true && e2.title === "Renamed" && e2.group === Term.groupOf(Term.build(state.term), nd) && e2.group !== f.e.group, detail: JSON.stringify(r) }; });
+  tx("edit: untouched fields stay identical (comp, index, relative, window, tips, source, confidence)", function(){
+    var f = ieFx(), keep = ["ref", "comp", "index", "relative", "window", "postGroup", "tips", "source", "confidence"], b = JSON.stringify(keep.map(function(k){ return f.it[k]; }));
+    applyItemEdit(f.e, { title: "X", date: Dt.add(f.it.date, 1) });
+    return eq(JSON.stringify(keep.map(function(k){ return f.it[k]; })), b); });
+  tx("edit: invalid values rejected, source unchanged", function(){
+    var f = ieFx(), b = JSON.stringify(f.it), bad = [{ title: "" }, { title: "ok", date: "2026-02-30" }, { title: "ok", tier: "x" }, { title: "ok", weight: "abc" }, { title: "ok", weight: "150" }, { title: "ok", time: "9am" }];
+    var res = bad.map(function(v){ return applyItemEdit(f.e, v).ok; });
+    return { ok: res.every(function(x){ return x === false; }) && JSON.stringify(f.it) === b, detail: res.join() }; });
+  tx("edit: empty date/time/weight/label clear to null (nothing invented)", function(){
+    var f = ieFx(); applyItemEdit(f.e, { title: "T", date: "", time: "", weight: "", dateLabel: "" });
+    return { ok: f.it.date === null && f.it.time === null && f.it.weight === null && f.it.dateLabel === null && entryOf(f.id).date === null, detail: JSON.stringify([f.it.date, f.it.time, f.it.weight, f.it.dateLabel]) }; });
+  tx("edit: custom task writes t/d/c only, tick survives, no time key", function(){
+    state.custom = [{ id: "cx2", t: "mine", c: "ALL", d: null }]; state.checks.cx2 = true;
+    var e = entryOf("cx2"), r = applyItemEdit(e, { title: "Mine 2", date: "2026-10-05", course: "DEMO3530", time: "10:00", weight: "5" });
+    var c = state.custom[0];
+    return { ok: r.ok && c.t === "Mine 2" && c.d === "2026-10-05" && c.c === "DEMO3530" && c.id === "cx2" && Object.keys(c).sort().join() === "c,d,id,t" && state.checks.cx2 === true && entryOf("cx2").date === "2026-10-05", detail: JSON.stringify(c) }; });
+  tx("relative: sheet disables date/time and shows the rule", function(){
+    state.courses.DEMO3530.section = { lab: "103" };
+    var n = itemEditorNode(entryOf("DEMO3530:w3-11")), ins = n.querySelectorAll("input[type=date],input[type=time]");
+    return { ok: ins.length === 2 && [].every.call(ins, function(i){ return i.disabled; }) && n.textContent.indexOf("24h after your lab") >= 0, detail: n.textContent.slice(0, 120) }; });
+  tx("relative: applyItemEdit ignores date/time, keeps relative; title edit still resolves", function(){
+    state.courses.DEMO3530.section = { lab: "103" };
+    var e = entryOf("DEMO3530:w3-11"), it = e.item, rel = JSON.stringify(it.relative);
+    var r = applyItemEdit(e, { title: "Lab L1 renamed", date: "2026-10-20", time: "07:00" }), e2 = entryOf("DEMO3530:w3-11");
+    return { ok: r.ok && it.date === null && JSON.stringify(it.relative) === rel && e2.date + " " + e2.time === "2026-09-29 15:30" && e2.title === "Lab L1 renamed" && e2.isRelative, detail: e2.date + " " + e2.time }; });
+  tx("delete confirm: ticked + noted + marked item names all three", function(){
+    var f = ieFx(), s = deleteConfirmText(f.e);
+    return { ok: s.indexOf("is ticked, has a note, has a mark (the mark stays in Grades)") >= 0 && s.indexOf(f.it.title) >= 0, detail: s }; });
+  tx("delete confirm: bare course item still confirms, no \"This item\" line", function(){
+    var f = ieFx(), other = Model.build().filter(function(e){ return !e.isCustom && e.courseKey === f.key && !state.checks[e.id] && !state.notes[e.id] && !(e.comp && state.grades[f.key][e.comp]); })[0];
+    var s = deleteConfirmText(other);
+    return { ok: s.indexOf("Delete \"" + other.title + "\" from ") === 0 && s.indexOf("This item") < 0, detail: s }; });
+  tx("delete confirm: custom task is a plain \"Delete task\" line", function(){
+    state.custom = [{ id: "cx3", t: "mine", c: "ALL", d: null }]; state.checks.cx3 = true;
+    return eq(deleteConfirmText(entryOf("cx3")), "Delete task \"mine\"?"); });
+  tx("delete core: item gone, tick/note/doneAt cleared, mark kept, confirmed pruned, others unchanged", function(){
+    var f = ieFx(), n = f.c.items.length; f.c.confirmed = [f.it.ref, "zzz"];
+    var otherId = f.key + ":" + f.c.items.filter(function(i){ return i.ref !== f.it.ref; })[0].ref; state.checks[otherId] = true;
+    var ok = removeEntryCore(f.e);
+    return { ok: ok && f.c.items.length === n - 1 && !f.c.items.some(function(i){ return i.ref === f.it.ref; }) && !state.checks[f.id] && !state.notes[f.id] && !state.doneAt[f.id] &&
+      state.grades[f.key][f.it.comp][f.it.index] === "80" && f.c.confirmed.join() === "zzz" && state.checks[otherId] === true && !entryOf(f.id), detail: "items " + f.c.items.length }; });
+  tx("delete core: custom task and its tick/note/doneAt removed", function(){
+    state.custom = [{ id: "cx4", t: "a", c: "ALL", d: null }, { id: "cx5", t: "b", c: "ALL", d: null }]; state.checks.cx4 = true; state.notes.cx4 = "x"; state.doneAt.cx4 = 1;
+    removeEntryCore(entryOf("cx4"));
+    return { ok: state.custom.length === 1 && state.custom[0].id === "cx5" && !state.checks.cx4 && !state.notes.cx4 && !state.doneAt.cx4, detail: JSON.stringify(state.custom) }; });
+  tx("add task: addTaskForm({date}) prefills; addTaskForm() has none and still says \"+ Add task\"", function(){
+    var a = addTaskForm({ date: "2026-10-14" }), b = addTaskForm();
+    var da = a.querySelector("input[type=date]"), db = b.querySelector("input[type=date]");
+    return { ok: da.value === "2026-10-14" && db.value === "" && a.querySelector("summary").textContent === "+ Add task" && b.querySelector("summary").textContent === "+ Add task", detail: da.value + "/" + db.value }; });
+  tx("add task: customTaskFrom builds exactly {id,t,c,d}, ids unique, errors as before", function(){
+    state.custom = [];
+    var a = customTaskFrom(" Hi ", "ALL", "2026-10-01"); state.custom.push(a.task);
+    var b = customTaskFrom("Hi 2", "ALL", "");
+    var e1 = customTaskFrom("  ", "ALL", ""), e2 = customTaskFrom("x", "ALL", "2026-02-30");
+    return { ok: a.ok && Object.keys(a.task).sort().join() === "c,d,id,t" && a.task.t === "Hi" && b.task.d === null && a.task.id !== b.task.id && e1.error === "Give the task a title." && e2.error === "That date isn't valid.", detail: JSON.stringify([a.task, b.task]) }; });
+  tx("itemRow: has an Edit button (aria-label), checkbox and title button kept; opts.edit=false hides it", function(){
+    var e = ieFx().e, r = UI.itemRow(e), b = r.querySelector("button[data-action=edit-item]");
+    return { ok: !!b && b.getAttribute("aria-label") === "Edit " + e.title && b.textContent === "Edit" && !!r.querySelector("input[type=checkbox]") && !!r.querySelector("button.t") && !UI.itemRow(e, { edit: false }).querySelector(".edit-btn"), detail: "btn " + !!b }; });
+  tx("sheet fields: course = Title/Type/Date/Time/Weight %/Date label; custom = Title/Course/Date", function(){
+    var f = ieFx(); state.custom = [{ id: "cx6", t: "m", c: "ALL", d: null }];
+    var a = labels(itemEditorNode(f.e)), b = labels(itemEditorNode(entryOf("cx6")));
+    return { ok: a === "Title|Type|Date|Time|Weight %|Date label" && b === "Title|Course|Date", detail: a + " / " + b }; });
+  tx("pending draft: syncPendingDraft patches an editMode draft by ref; re-import draft untouched", function(){
+    var key = "DEMO3530", ref = state.courses[key].items[0].ref, d = editDraftFor(key);
+    state.reviewDraft = { key: key, reimportKey: null, editMode: true, draft: d, meta: { removeRefs: {} } };
+    var n1 = syncPendingDraft(key, ref, { title: "Synced" }), t1 = d.items[0].title;
+    var n2 = syncPendingDraft(key, ref, null), gone = !d.items.some(function(i){ return i.ref === ref; }), rm = state.reviewDraft.meta.removeRefs[ref];
+    var d2 = editDraftFor(key); state.reviewDraft = { key: key, reimportKey: key, editMode: false, draft: d2, meta: { removeRefs: {} } };
+    var n3 = syncPendingDraft(key, ref, { title: "No" });
+    return { ok: n1 === 1 && t1 === "Synced" && n2 === 1 && gone && rm === true && n3 === 0 && d2.items[0].title !== "No", detail: [n1, n2, n3].join() }; });
+  tx("weight edit: Grade.course result identical before/after", function(){
+    var f = ieFx(), run = function(){ var c = Grade.course(f.c.template.components, state.grades[f.key], null); return JSON.stringify([c.current, c.projected, c.earned, c.remaining]); };
+    var b = run(); applyItemEdit(f.e, { title: f.it.title, weight: "77" });
+    return { ok: f.it.weight === 77 && run() === b, detail: b }; });
+  tx("sample: sampleCourse(\"DEMO3530\") unchanged after editing a stored DEMO item", function(){
+    var f = ieFx(), mk = function(){ return JSON.stringify([sampleCourse("DEMO3530", SAMPLE_TEMPLATES.DEMO3530 || SAMPLE_TEMPLATES_2.DEMO3530), SAMPLE_ROWS.DEMO3530]); };
+    var before = mk(); applyItemEdit(f.e, { title: "Edited", date: Dt.add(f.it.date, 3) });
+    return { ok: mk() === before && f.it.title === "Edited" && before.indexOf("\"Edited\"") < 0, detail: "shipped sample data changed" }; });
+  tx("add task: custom tasks (tier must) are hidden in Graded mode, which is why the add toast names Essentials", function(){
+    return { ok: Model.tierOK("graded", "must") === false && Model.tierOK("essentials", "must") === true, detail: "custom tasks are tier must" }; });
   t("tour: five steps, each has title and text", function(){
     return { ok: TOUR_STEPS.length === 5 && TOUR_STEPS.every(function(s){ return s.title && s.text && s.text.length > 40; }), detail: TOUR_STEPS.length + " steps" }; });
   t("tour: boot rule never shows the tour to a returning user", function(){
