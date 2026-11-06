@@ -2524,7 +2524,7 @@ function unknownsCard(draft, meta){
     draft.unknowns.map(function(u, i){
       var dateIn = el("input", { type: "date", "aria-label": "Date for " + u }), sel = el("select", { "aria-label": "Item to date" },
         [el("option", { value: "", text: "Choose an item" })].concat(undated.map(function(x){ return el("option", { value: x.i, text: x.it.title }); })));
-      return el("div", { class: "item" }, [
+      return el("div", { class: "item", style: "display:block" }, [
         el("div", { class: "t", text: u + (meta.unk[i] === "blank" ? " (left blank)" : meta.unk[i] === "added" ? " (dated)" : "") }),
         el("div", { class: "row" }, [
           undated.length ? sel : null, undated.length ? dateIn : null,
@@ -2554,7 +2554,7 @@ function passEditor(draft){
   var rules = draft.course.passRules;
   return el("section", { class: "card", "aria-label": "Pass rules" }, [el("h2", { text: "Pass rules" }),
     rules.length ? rules.map(function(r, i){
-      return el("div", { class: "item" }, [el("div", { class: "t", text: (r.label || "Rule") + " ≥ " }),
+      return el("div", { class: "item", style: "display:block" }, [el("div", { class: "t", text: (r.label || "Rule") + " ≥ " }),
         el("label", { class: "row" }, [el("span", { class: "sr", text: "Minimum percent" }), el("input", { type: "number", min: 0, max: 100, value: r.min, style: "width:90px", "aria-label": "Minimum percent for " + r.label, "data-path": "passRules[" + i + "]",
           on: { change: function(ev){ r.min = +ev.target.value; render(); } } }), el("span", { text: "%" })]) ]);
     }) : el("p", { class: "muted", text: "No pass rules stated. The app still shows overall ≥ 50%." }) ]);
