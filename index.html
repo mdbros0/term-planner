@@ -121,6 +121,9 @@ nav.tabs .nav-settings{display:none}
 .wk-n{font-size:.85rem;line-height:1.1;white-space:nowrap}
 .wk-bar{display:block;width:40px;height:6px;flex:0 0 6px}
 .wk[aria-current="true"]{box-shadow:inset 0 0 0 2px var(--ink);border-color:var(--ink);font-weight:700}
+.wk-ribbon{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px}
+.wk-ribbon::-webkit-scrollbar{display:none}
+.wk-ribbon .wk{flex:0 0 auto}
 .btn{border:1px solid var(--accent);background:var(--accent);color:var(--bg);border-radius:10px;padding:8px 14px;cursor:pointer;min-height:40px}
 .btn.ghost{background:var(--panel);color:var(--accent)}
 .btn.danger{background:var(--warn);border-color:var(--warn)}
@@ -1782,10 +1785,14 @@ function viewChecklist(){
   var nodate = { id: "nodate", label: "No date yet", start: null, end: null };
   groups.push(nodate);
   var curG = T ? Term.groupOf(T, Dt.today()) : null;
-  // week ribbon
-  wrap.appendChild(el("nav", { class: "seg", "aria-label": "Weeks" }, groups.map(function(g){
+  // week ribbon: one horizontally scrollable row; auto-centres on the current week the first time it renders
+  var ribbon = el("nav", { class: "seg wk-ribbon", "aria-label": "Weeks" }, groups.map(function(g){
     return weekBubble(g, fl.filter(function(e){ return e.group === g.id; }), g.id === curG);
-  })));
+  }));
+  wrap.appendChild(ribbon);
+  if (!view._wkAuto) { view._wkAuto = true;
+    var cur = ribbon.querySelector('[aria-current="true"]');
+    if (cur && cur.offsetLeft) ribbon.scrollLeft = Math.max(0, cur.offsetLeft - ribbon.clientWidth / 2 + cur.offsetWidth / 2); }
   wrap.appendChild(addTaskForm());
   groups.forEach(function(g){
     var items = fl.filter(function(e){ return e.group === g.id; }).sort(cmpItems);
