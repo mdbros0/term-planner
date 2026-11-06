@@ -131,6 +131,7 @@ nav.tabs .nav-settings{display:none}
 .wk-ribbon .wk{flex:0 0 auto}
 .btn{border:1px solid var(--accent);background:var(--accent);color:var(--bg);border-radius:10px;padding:8px 14px;cursor:pointer;min-height:40px}
 .btn.ghost{background:var(--panel);color:var(--accent)}
+a.btn{display:inline-flex;align-items:center;text-decoration:none}
 .btn.danger{background:var(--warn);border-color:var(--warn)}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 input[type=text],input[type=date],input[type=number],input[type=time],select,textarea{border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:var(--panel2);width:100%;min-height:40px}
@@ -147,7 +148,6 @@ input[type=checkbox]{width:22px;height:22px;accent-color:var(--accent);flex:0 0 
 .item .when{text-align:right;font-size:.9rem;min-width:84px}
 .item .when b{display:block}
 .item .t{overflow-wrap:anywhere}
-.item .edit-btn{padding:4px 10px;min-height:32px;font-size:.85rem;margin-left:6px}
 /* Undated or long-label rows: label on its own full-width line under the title, indented past the checkbox (22px + 10px gap) */
 .item.long{flex-wrap:wrap}
 .item .when-line{flex:1 0 100%;padding-left:32px;font-size:.9rem;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
@@ -1625,9 +1625,7 @@ UI.itemRow = function(e, opts){
       el("div", { class: "hint" }, [
         overdue ? el("span", { class: "over", text: "Overdue: " }) : null,
         showDue ? "Due " + e.dateLabel + " " : "",
-        UI.tagTier(e.tier),
-        opts.edit === false ? null : el("button", { class: "btn ghost edit-btn", type: "button", "data-action": "edit-item", "aria-label": "Edit " + e.title,
-          on: { click: function(){ openItemEditor(e.id); } }, text: "Edit" }) ]),
+        UI.tagTier(e.tier) ]),
       win ]),
     long ? el("div", { class: "when-line" }, [el("span", { text: label }), UI.weightBadge(e.weight)])
       : el("div", { class: "when" }, [when, UI.weightBadge(e.weight)])
@@ -1641,8 +1639,13 @@ UI.whenText = function(e){
 UI.LONG_WHEN = 24;
 UI.isLongWhen = function(e){ return !e.date || UI.whenText(e).length > UI.LONG_WHEN; };
 function openTask(id){
+  var n = taskSheetNode(id);
+  if (n) UI.openSheet(n.e.title, n.wrap);
+}
+/* Builds the task detail sheet body (pure: no sheet, save or render), so self-tests can read it. */
+function taskSheetNode(id){
   var list = Model.build(), e = list.filter(function(x){ return x.id === id; })[0];
-  if (!e) return;
+  if (!e) return null;
   var wrap = el("div", { style: "margin-top:10px" });
   wrap.appendChild(el("div", { class: "row" }, [UI.tagCourse(e.courseKey), UI.tagTier(e.tier), UI.weightBadge(e.weight)]));
   var facts = el("dl", { style: "display:grid;grid-template-columns:auto 1fr;gap:4px 12px" }, [
@@ -1679,11 +1682,10 @@ function openTask(id){
       Store.save(); UI.closeSheet(); render(); } }, text: "Save notes" }),
     el("button", { class: "btn ghost", on: { click: function(){
       UI.toggleDone(id, !e.done); openTask(id); render(); } }, text: e.done ? "Mark not done" : "Mark done" }) ]));
-  if (e.courseKey && state.courses[e.courseKey]) wrap.appendChild(el("p", { class: "hint" }, [
-    el("a", { href: "#courses", on: { click: function(ev){ ev.preventDefault(); UI.closeSheet(); view.course = e.courseKey; UI.setTab("courses"); } }, text: "Course info" }) ]));
   wrap.appendChild(el("div", { class: "row" }, [
-    el("button", { class: "btn ghost", "data-action": "edit-item", on: { click: function(){ openItemEditor(id); } }, text: "Edit" }) ]));
-  UI.openSheet(e.title, wrap);
+    el("button", { class: "btn ghost", "data-action": "edit-item", on: { click: function(){ openItemEditor(id); } }, text: "Edit" }),
+    e.courseKey && state.courses[e.courseKey] ? el("a", { class: "btn ghost", href: "#courses", on: { click: function(ev){ ev.preventDefault(); UI.closeSheet(); view.course = e.courseKey; UI.setTab("courses"); } }, text: "Course info" }) : null ]));
+  return { e: e, wrap: wrap };
 }
 /* ---- Inline edit of one item (v4). Entry -> source: course entry = state.courses[courseKey].items by ref;
    custom entry = state.custom by id. Writes go to the source record, never to the derived entry or e.item. ---- */
@@ -3614,9 +3616,10 @@ function runSelfTests(){
     var b = customTaskFrom("Hi 2", "ALL", "");
     var e1 = customTaskFrom("  ", "ALL", ""), e2 = customTaskFrom("x", "ALL", "2026-02-30");
     return { ok: a.ok && Object.keys(a.task).sort().join() === "c,d,id,t" && a.task.t === "Hi" && b.task.d === null && a.task.id !== b.task.id && e1.error === "Give the task a title." && e2.error === "That date isn't valid.", detail: JSON.stringify([a.task, b.task]) }; });
-  tx("itemRow: has an Edit button (aria-label), checkbox and title button kept; opts.edit=false hides it", function(){
-    var e = ieFx().e, r = UI.itemRow(e), b = r.querySelector("button[data-action=edit-item]");
-    return { ok: !!b && b.getAttribute("aria-label") === "Edit " + e.title && b.textContent === "Edit" && !!r.querySelector("input[type=checkbox]") && !!r.querySelector("button.t") && !UI.itemRow(e, { edit: false }).querySelector(".edit-btn"), detail: "btn " + !!b }; });
+  tx("itemRow: no Edit button; checkbox and title button kept. Task sheet offers Edit and a styled Course info", function(){
+    var f = ieFx(), e = f.e, r = UI.itemRow(e), b = r.querySelector("button[data-action=edit-item]"), n = taskSheetNode(e.id);
+    var sb = n && n.wrap.querySelector("button[data-action=edit-item]"), ci = n && n.wrap.querySelector("a.btn.ghost[href='#courses']");
+    return { ok: !b && !r.querySelector(".edit-btn") && !!r.querySelector("input[type=checkbox]") && !!r.querySelector("button.t") && !!sb && sb.textContent === "Edit" && !!ci && ci.textContent === "Course info", detail: "row " + !!b + " sheet " + !!sb + " ci " + !!ci }; });
   tx("sheet fields: course = Title/Type/Date/Time/Weight %/Date label; custom = Title/Course/Date", function(){
     var f = ieFx(); state.custom = [{ id: "cx6", t: "m", c: "ALL", d: null }];
     var a = labels(itemEditorNode(f.e)), b = labels(itemEditorNode(entryOf("cx6")));

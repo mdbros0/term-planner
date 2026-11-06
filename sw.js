@@ -1,7 +1,7 @@
 /* Term Planner service worker (improvement pass).
    Cache-first for the app shell (index.html, manifest, icon), so the planner opens offline once it has loaded online.
    Bump SHELL_VERSION whenever index.html changes; otherwise a returning visitor keeps the old copy. */
-var SHELL_VERSION = "v11";
+var SHELL_VERSION = "v12";
 var CACHE = "term-planner-shell-" + SHELL_VERSION;
 var SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
