@@ -2609,6 +2609,7 @@ function itemsCard(draft, term, meta){
 function itemEditRow(it, idx, draft, meta){
   var lowCls = it.confidence === "low" ? "amber-dash" : "";
   var field = function(name, node){ node.setAttribute("data-ref", it.ref); node.setAttribute("data-field", name); node.setAttribute("data-idx", idx); return node; };
+  var lab = function(text, node, cls){ return el("label", { class: "f" + (cls ? " " + cls : "") }, [el("span", { text: text }), node]); };
   var title = field("title", el("input", { type: "text", value: it.title, "aria-label": "Title of " + it.ref, on: { change: function(ev){ it.title = ev.target.value.trim(); render(); } } }));
   var tier = field("tier", el("select", { "aria-label": "Tier of " + it.ref, on: { change: function(ev){ it.tier = ev.target.value; render(); } } },
     ["graded","must","study"].map(function(t){ return el("option", { value: t, selected: it.tier === t, text: t }); })));
@@ -2630,11 +2631,11 @@ function itemEditRow(it, idx, draft, meta){
   var note = it.relative ? "Relative: " + it.relative.offsetHours + "h after your " + it.relative.sectionType + " (week " + it.relative.week + ")" : null;
   return el("div", { class: "item " + lowCls }, [
     el("div", { class: "grow", style: "flex:1;min-width:0" }, [
-      el("div", { class: "row" }, [title, tier]),
-      el("div", { class: "row" }, [date, time, weight]),
-      el("div", { class: "row" }, [label]),
-      el("div", { class: "row" }, [comp, index]),
-      relSec ? el("label", { class: "row" }, [el("span", { class: "muted", text: "Relative to (section type)" }), relSec]) : null,
+      el("div", { class: "row" }, [lab("Title", title, "grow"), lab("Type", tier)]),
+      el("div", { class: "row" }, [lab("Date", date), lab("Time", time), lab("Weight %", weight)]),
+      el("div", { class: "row" }, [lab("Date label", label, "grow")]),
+      el("div", { class: "row" }, [lab("Component", comp, "grow"), lab("Index in component (0 = first)", index)]),
+      relSec ? lab("Relative to (section type)", relSec) : null,
       note ? el("div", { class: "hint", text: note }) : null,
       el("div", { class: "hint", text: "Source: " + (it.source || "not stated") + (it.confidence === "low" ? " · low confidence" : "") }),
       el("button", { class: "btn ghost", "aria-label": "Delete item " + it.ref, on: { click: function(){ deleteDraftItem(draft, meta, idx); } }, text: "Delete item" }) ]) ]);
