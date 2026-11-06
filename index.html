@@ -203,6 +203,15 @@ table.grid input{min-width:0}
 .help ol,.help ul{padding-left:20px}
 .help h3{font-size:1rem;margin:12px 0 4px}
 .next{border-left:6px solid var(--accent)}
+/* ===== CSS: tour ===== */
+.tour{position:fixed;inset:0;z-index:30;pointer-events:none}
+.tour[hidden]{display:none}
+.tour-frame{position:fixed;border-radius:10px;box-shadow:0 0 0 2px var(--accent),0 0 0 200vmax rgba(0,0,0,.55);pointer-events:none;transition:top .15s,left .15s,width .15s,height .15s}
+.tour-block{position:fixed;pointer-events:auto;background:transparent}
+.tour-cover[hidden]{display:none}
+.tour.free .tour-frame,.tour.free .tour-cover{display:none}
+.tour.free .tour-block[data-side="top"]{background:rgba(0,0,0,.55)}
+.tour-card{position:fixed;margin:0;width:min(340px,calc(100vw - 24px));pointer-events:auto;z-index:1;box-shadow:0 6px 24px rgba(0,0,0,.35)}
 .next .big{font-size:1.4rem;font-weight:700;line-height:1.25}
 </style>
 </head>
@@ -211,6 +220,7 @@ table.grid input{min-width:0}
   <div><h1 id="app-title">Term Planner</h1><div class="sub" id="app-sub"></div></div>
   <div class="row"><span class="pill" id="save-pill">Saved on this device</span>
   <button class="theme-btn" id="settings-btn" type="button">Settings</button>
+  <button class="theme-btn" id="tour-btn" type="button" data-action="tour">Tour</button>
   <button class="theme-btn" id="theme-btn" aria-label="Toggle dark mode">Dark</button></div>
 </div></header>
 <div id="mode-bar"></div>
@@ -225,7 +235,13 @@ table.grid input{min-width:0}
 </nav>
 <dialog id="sheet" aria-labelledby="sheet-title"><div class="in" id="sheet-body"></div></dialog>
 <dialog id="welcome" aria-labelledby="welcome-title"><div class="in" id="welcome-body"></div></dialog>
-<dialog id="tour" aria-labelledby="tour-title"><div class="in" id="tour-body"></div></dialog>
+<div id="tour" class="tour" hidden>
+  <div class="tour-frame"></div>
+  <div class="tour-block" data-side="top"></div><div class="tour-block" data-side="left"></div>
+  <div class="tour-block" data-side="right"></div><div class="tour-block" data-side="bottom"></div>
+  <div class="tour-block tour-cover"></div>
+  <div class="card tour-card" id="tour-body" role="dialog" aria-modal="false" aria-labelledby="tour-title"></div>
+</div>
 <div id="toast-host" aria-live="polite"></div>
 <!-- Guide prompts, from COURSE_IMPORT_GUIDE.md section 2 (PLAN R7); rules 15 (SPEC-v2) and 16 (SPEC-v3) go beyond the guide by explicit instruction. Filled by fillPrompt() / fixPrompt(). -->
 <script type="text/plain" id="ai-prompt">
@@ -1475,7 +1491,7 @@ UI.el = function(tag, attrs, kids){
 };
 var el = UI.el;
 UI.main = function(){ return document.getElementById("view"); };
-UI.setMain = function(nodes){ var m = UI.main(); m.textContent = ""; m.appendChild(nodes); };
+UI.setMain = function(nodes){ var m = UI.main(); m.textContent = ""; m.appendChild(nodes); if (typeof Tour !== "undefined" && Tour.on) tourAfterRender(); };
 UI.courseClass = function(key){ var c = state.courses[key]; return c ? "cc" + (c.color || 0) : ""; };
 UI.courseCode = function(key){ var c = state.courses[key]; return c ? c.template.code : (key || "All / personal"); };
 UI.courseShort = function(key){ var c = state.courses[key]; return c ? c.template.code.replace("*", "") : "All"; };
@@ -1838,7 +1854,7 @@ function emptyCourses(){
     el("h2", { text: "No courses yet" }),
     el("p", { class: "hint", text: "Add your courses by pasting the outline into your own AI, or try the sample courses first." }),
     el("div", { class: "row" }, [
-      el("button", { class: "btn", on: { click: function(){ view.screen = "add"; render(); } }, text: "+ Add course" }),
+      el("button", { class: "btn", "data-tour": "add-course", on: { click: function(){ view.screen = "add"; render(); } }, text: "+ Add course" }),
       el("button", { class: "btn ghost", on: { click: loadSample }, text: "Try with sample data" }) ]) ]);
 }
 function groupRange(g){ return g.start && g.end ? Dt.short(g.start) + " – " + Dt.short(g.end) : ""; }
@@ -2170,7 +2186,7 @@ function marksCard(key, g){
     wrap.appendChild(el("h3", { style: "font-size:1rem;margin-top:12px" }, [comp.name + " ", UI.weightBadge(comp.weight)]));
     wrap.appendChild(el("p", { class: "hint", text: (comp.best ? "Best " + comp.best + " of " + comp.count + ". " : "") +
       (avg !== null ? "avg " + Grade.fmt0(avg) + "%, earned " + Grade.fmt(r.earned) + "/" + comp.weight : "No marks yet") }));
-    wrap.appendChild(el("div", { class: "row" }, inputs));
+    wrap.appendChild(el("div", ci === 0 ? { class: "row", "data-tour": "marks" } : { class: "row" }, inputs));
   });
   return wrap;
 }
@@ -2190,7 +2206,7 @@ function viewCourses(){
   var rep = replaceSampleCard(); if (rep) wrap.appendChild(rep);
   wrap.appendChild(el("div", { class: "seg chip-ribbon", role: "group", "aria-label": "Course" }, keys.map(function(k){
     return el("button", { class: "chip", "aria-pressed": k === key ? "true" : "false", on: { click: function(){ view.course = k; render(); } } }, [UI.dot(k), UI.courseShort(k)]); })
-    .concat([el("button", { class: "chip", on: { click: function(){ view.screen = "add"; render(); } }, text: "+ Add course" })])));
+    .concat([el("button", { class: "chip", "data-tour": "add-course", on: { click: function(){ view.screen = "add"; render(); } }, text: "+ Add course" })])));
   wrap.appendChild(el("section", { class: "card " + UI.courseClass(key), style: "border-top:4px solid var(--c" + (c.color || 0) + ")" }, [
     el("h2", { text: t.code + " · " + t.name }),
     el("p", { class: "hint", text: [t.department, t.delivery, t.credits ? t.credits + " credits" : null].filter(Boolean).join(" · ") }),
@@ -2449,7 +2465,7 @@ SCREENS.settings = function(){
       el("p", { class: "hint", text: "How adding courses with AI works, where your data lives, backups, and installing the app." }),
       el("div", { class: "row" }, [
         el("button", { class: "btn ghost", on: { click: function(){ view.screen = "help"; render(); } }, text: "Open help" }),
-        el("button", { class: "btn ghost", on: { click: function(){ openTour(0); } }, text: "Take the tour" }) ]) ]),
+        el("button", { class: "btn ghost", "data-action": "tour", text: "Take the tour" }) ]) ]),
     el("section", { class: "card" }, [el("h2", { text: "Sample data" }),
       el("div", { class: "row" }, [
         sampleKeysPresent().length ? el("button", { class: "btn", on: { click: replaceSampleData }, text: "Replace sample data with my own courses" }) : null,
@@ -2460,7 +2476,7 @@ SCREENS.help = function(){
   return el("div", { class: "help" }, [
     el("div", { class: "row" }, [
       el("button", { class: "btn ghost", on: { click: function(){ view.screen = "settings"; render(); } }, text: "‹ Back to settings" }),
-      el("button", { class: "btn", on: { click: function(){ openTour(0); } }, text: "Take the tour" }) ]),
+      el("button", { class: "btn", "data-action": "tour", text: "Take the tour" }) ]),
     el("section", { class: "card", style: "margin-top:10px" }, [el("h2", { text: "Adding a course with AI" }),
       el("ol", null, [
         el("li", { text: "Go to Courses and tap + Add course (or Add course on the empty Today screen)." }),
@@ -2522,14 +2538,14 @@ SCREENS.add = function(){
         el("li", { text: "Copy the JSON reply from the AI." }),
         el("li", { text: "Come back here and paste it below, or choose the saved file." }) ]),
       el("p", { class: "hint", text: "If your course has lab, tutorial or lecture sections, you'll be asked which one is yours when you paste the reply back." }),
-      el("button", { class: "btn", on: { click: function(){ out.value = fillPrompt(); copyText(out.value, "Prompt copied. Paste it into your AI."); } }, text: "Copy prompt" }),
+      el("button", { class: "btn", "data-tour": "copy-prompt", on: { click: function(){ out.value = fillPrompt(); copyText(out.value, "Prompt copied. Paste it into your AI."); } }, text: "Copy prompt" }),
       el("label", { class: "f" }, [el("span", { text: "Prompt (filled from your term)" }), out]),
       el("ul", { class: "hint" }, [
         el("li", { text: "Attach the PDF if your AI supports files; otherwise paste the outline text." }),
         el("li", { text: "One course per chat works best." }),
         el("li", { text: "Use a strong model (for example Claude Sonnet or Opus, or a GPT-4-class model) for long outlines." }),
         el("li", { text: "If the answer gets cut off, reply \"continue\" and paste both parts together." }) ]) ]),
-    el("section", { class: "card" }, [
+    el("section", { class: "card", "data-tour": "paste" }, [
       el("h2", { text: "Paste course data" }),
       el("label", { class: "f" }, [el("span", { text: "Reply from your AI" }), box]),
       el("div", { class: "row" }, [
@@ -3623,14 +3639,80 @@ function runSelfTests(){
     return { ok: mk() === before && f.it.title === "Edited" && before.indexOf("\"Edited\"") < 0, detail: "shipped sample data changed" }; });
   tx("add task: custom tasks (tier must) are hidden in Graded mode, which is why the add toast names Essentials", function(){
     return { ok: Model.tierOK("graded", "must") === false && Model.tierOK("essentials", "must") === true, detail: "custom tasks are tier must" }; });
-  t("tour: five steps, each has title and text", function(){
-    return { ok: TOUR_STEPS.length === 5 && TOUR_STEPS.every(function(s){ return s.title && s.text && s.text.length > 40; }), detail: TOUR_STEPS.length + " steps" }; });
+  t("tour: step list shape", function(){
+    var ids = TOUR_STEPS.map(function(s){ return s.id; }).join(), tabsOk = ["today", "checklist", "calendar", "grades", "courses"];
+    var hands = TOUR_STEPS.filter(function(s){ return s.handsOn; }).map(function(s){ return s.id; }).join();
+    var ok = ids === "intro,add-course,copy-prompt,review,tick,grades,good-to-know"
+      && TOUR_STEPS.every(function(s){ return s.title && s.text; })
+      && TOUR_STEPS.every(function(s){ return s.kind ? !s.target : (typeof TOUR_TARGETS[s.target] === "function"); })
+      && hands === "add-course,copy-prompt"
+      && typeof TOUR_STEPS[1].advanceWhen === "function" && TOUR_STEPS[2].advanceOnTap === true
+      && TOUR_STEPS.every(function(s){ return (s.nav || []).every(function(n){ return n.tab ? tabsOk.indexOf(n.tab) >= 0 : n.screen === "add"; }); });
+    return { ok: ok, detail: ids + " / hands-on " + hands }; });
   t("tour: boot rule never shows the tour to a returning user", function(){
     var r = [shouldTourAfterWelcome(false, { welcomeDismissed: true }), shouldTourAfterWelcome(false, {}), shouldTourAfterWelcome(true, { tourDone: true }), shouldTourAfterWelcome(true, { welcomeDismissed: true }), shouldTourAfterWelcome(true, {}), shouldTourAfterWelcome(true, undefined)];
     return eq(r.join(), "false,false,false,true,true,true"); });
-  t("tour: Settings and Help both offer Take the tour", function(){
-    var v = view.screen; var a = hasBtn(SCREENS.settings(), "Take the tour"), b = hasBtn(SCREENS.help(), "Take the tour"); view.screen = v;
-    return { ok: a && b && !!document.getElementById("tour"), detail: "settings " + a + " help " + b }; });
+  var tourBtn = function(node){ return [].filter.call(node.querySelectorAll("button"), function(b){ return b.textContent.trim() === "Take the tour"; })[0]; };
+  t("tour: Settings and Help Take the tour buttons are tour triggers", function(){
+    var v = view.screen; var a = tourBtn(SCREENS.settings()), b = tourBtn(SCREENS.help()); view.screen = v;
+    var d = document.getElementById("tour");
+    return { ok: !!a && !!b && a.getAttribute("data-action") === "tour" && b.getAttribute("data-action") === "tour" && isTourTrigger(a) && isTourTrigger(b) && !!d && d.tagName !== "DIALOG",
+      detail: "settings " + !!a + " help " + !!b }; });
+  t("tour: header Tour button sits next to Settings and starts the tour", function(){
+    var b = document.getElementById("tour-btn"), s = document.getElementById("settings-btn");
+    return { ok: !!b && !!s && !!b.closest("header.top") && b.previousElementSibling === s && b.getAttribute("data-action") === "tour" && isTourTrigger(b) && !isTourTrigger(s),
+      detail: "header button wiring" }; });
+  t("tour: every targeted step resolves with sample data", function(){
+    var v = view.screen, c = view.course, add = SCREENS.add(), r = {};
+    try {
+      r.add = TOUR_TARGETS.addCourse(viewCourses()); r.copy = TOUR_TARGETS.copyPrompt(add); r.paste = TOUR_TARGETS.paste(add);
+      r.item = TOUR_TARGETS.firstItem(viewToday()) || TOUR_TARGETS.firstItem(viewChecklist()); r.marks = TOUR_TARGETS.marks(viewGrades());
+    } finally { view.screen = v; view.course = c; }
+    var ok = !!r.add && r.add.textContent === "+ Add course" && !!r.copy && r.copy.textContent === "Copy prompt"
+      && !!r.paste && !!r.paste.querySelector('textarea[aria-label="Paste course data"]')
+      && !!r.item && r.item.classList.contains("item") && !!r.item.querySelector("input[type=checkbox]")
+      && !!r.marks && !!r.marks.closest('section[aria-label="Enter marks"]');
+    return { ok: ok, detail: Object.keys(r).map(function(k){ return k + ":" + !!r[k]; }).join(" ") }; });
+  tx("tour: empty planner falls back, never dead-ends", function(){
+    var v = view.screen, c = view.course, term = state.term, out = {};
+    try {
+      state.courses = {};
+      out.addBtn = TOUR_TARGETS.addCourse(viewCourses());
+      out.today = TOUR_TARGETS.firstItem(viewToday()); out.list = TOUR_TARGETS.firstItem(viewChecklist()); out.marks = TOUR_TARGETS.marks(viewGrades());
+      state.term = null;
+      out.setup = TOUR_TARGETS.addCourse(screenSetup());
+    } finally { view.screen = v; view.course = c; state.term = term; }
+    var byId = function(id){ return TOUR_STEPS.filter(function(s){ return s.id === id; })[0]; };
+    var card = tourCardNode(1, true).textContent;
+    return { ok: !!out.addBtn && !out.today && !out.list && !out.marks && !out.setup
+      && !!byId("add-course").textNoTarget && !!byId("tick").textNoTarget && !!byId("grades").textNoTarget
+      && card.indexOf("term dates") >= 0 && tourCardNode(1, false).textContent.indexOf("term dates") < 0,
+      detail: Object.keys(out).map(function(k){ return k + ":" + !!out[k]; }).join(" ") }; });
+  t("tour: placement fits a 360px phone and avoids the target", function(){
+    var vp = { w: 360, h: 640 }, cd = { w: 336, h: 180 }, P = function(top, left, w, h){ return tourPlace({ top: top, left: left, width: w, height: h }, cd, vp); };
+    var a = P(100, 20, 100, 36), b = P(560, 20, 100, 36), c = P(300, 300, 120, 36), z = tourPlace({ top: 0, left: 0, width: 0, height: 0 }, cd, vp), o = P(0, 20, 100, 900);
+    var ok = a.side === "below" && a.top >= a.hole.y + a.hole.h
+      && b.side === "above" && b.top + cd.h <= b.hole.y
+      && c.left >= 12 && c.left + cd.w <= 348
+      && z.hole === null && z.side === "free"
+      && o.side === "over" && o.top >= 12 && o.top + cd.h <= 640 - 12;
+    return { ok: ok, detail: [a.side, b.side, c.left, z.side, o.side + "@" + o.top].join(" ") }; });
+  t("tour: card buttons per step", function(){
+    var labels = function(i){ return [].map.call(tourCardNode(i).querySelectorAll("button"), function(b){ return b.textContent.trim(); }); };
+    var n0 = tourCardNode(0), n1 = tourCardNode(1), n6 = tourCardNode(6);
+    var back1 = [].filter.call(n1.querySelectorAll("button"), function(b){ return b.textContent === "Back"; })[0];
+    var ok = labels(0).join() === "Start,Not now" && n0.textContent.indexOf("Step") < 0
+      && n1.textContent.indexOf("Step 1 of 6") >= 0 && !!back1 && back1.disabled && labels(1).join() === "Back,Next,Skip"
+      && n6.textContent.indexOf("Step 6 of 6") >= 0 && labels(6).join() === "Back,Finish,Skip"
+      && [1, 2, 3, 4, 5, 6].every(function(i){ return labels(i).indexOf("Skip") >= 0; });
+    return { ok: ok, detail: labels(0) + " | " + labels(1) + " | " + labels(6) }; });
+  t("tour: tourDoneUi sets tourDone and keeps other ui keys", function(){
+    var u = tourDoneUi({ welcomeDismissed: true, accent: "blue" });
+    return { ok: u.tourDone === true && u.welcomeDismissed === true && u.accent === "blue" && tourDoneUi(undefined).tourDone === true, detail: JSON.stringify(u) }; });
+  t("tour: refuses to start over an open review", function(){
+    var v = view.screen, a, b;
+    try { view.screen = "review"; a = tourBlocked(); view.screen = "add"; b = tourBlocked(); } finally { view.screen = v; }
+    return { ok: typeof a === "string" && a.indexOf("Finish or cancel") >= 0 && b === null, detail: String(a) + " / " + b }; });
   /* ---- v3 tests: Questions card model, fix-up prompt, paste-back. Pure builders and cores only; never Store.save or render. ---- */
   var qItem = function(ref, title, o){
     return Object.assign({ ref: ref, title: title, tier: "graded", date: null, time: null, dateLabel: null, window: null, relative: null,
@@ -3874,29 +3956,182 @@ function buildWelcome(){
     el("button", { class: "btn", on: { click: function(){ loadSample(); document.getElementById("welcome").close(); } }, text: "Try with sample data" }),
     el("button", { class: "btn ghost", on: { click: function(){ document.getElementById("welcome").close(); } }, text: "Dismiss" }) ]));
 }
-/* First-run walkthrough: five plain-language steps, one screen each. Finish, Skip, Esc and a backdrop click all close the dialog, and closing sets
-   ui.tourDone (same pattern as the welcome). It is only opened (a) right after the welcome closes in the session that showed it, or (b) by "Take the tour". */
+/* Interactive spotlight tour (SPEC-v11): a non-modal overlay (#tour) over the real screens, not a dialog. Steps navigate and highlight real targets
+   (data-tour hooks, resolved through TOUR_TARGETS). Finish, Skip, Not now and Esc all go through endTour, which sets ui.tourDone (same as the old
+   close handler). It is only opened (a) right after the welcome closes in the session that showed it, or (b) by a [data-action="tour"] button. */
+var TOUR_TARGETS = {
+  addCourse:  function(r){ return r.querySelector('[data-tour="add-course"]'); },
+  copyPrompt: function(r){ return r.querySelector('[data-tour="copy-prompt"]'); },
+  paste:      function(r){ return r.querySelector('[data-tour="paste"]'); },
+  firstItem:  function(r){
+    var cbs = r.querySelectorAll(".item input[type=checkbox]");
+    for (var k = 0; k < cbs.length; k++) { var d = cbs[k].closest("details"); if (!d || d.open) return cbs[k].closest(".item"); }
+    return null;
+  },
+  marks:      function(r){ return r.querySelector('[data-tour="marks"]'); }
+};
 var TOUR_STEPS = [
-  { title: "Add a course", text: "Go to Courses and tap + Add course. Tap Copy prompt, paste it into your AI chat with your course outline attached, then paste the AI's reply back into the box. You check it on a review screen before anything is saved." },
-  { title: "Tick things off", text: "Today and Checklist show what's due. Tick items as you finish them. If your course has lab or tutorial sections you're asked which one is yours while you review a new course; you can also change it any time on the Courses screen, and your calendar then shows only your sessions." },
-  { title: "Check your grades", text: "Open Grades and type in each mark as you get it. The planner shows where you stand now and what you still need on the remaining work to reach the grade you're aiming for." },
-  { title: "Back up your data", text: "Everything lives only in this browser on this device. There is no account and no sync, so clearing browser data or switching phones starts you from empty. Open Settings, then Export backup, and save the file now and then." },
-  { title: "Install it on your phone", text: "To open it like an app: on iPhone, tap Share in Safari, then Add to Home Screen. On Android, open the Chrome menu, then Install app or Add to Home screen." }
+  { id: "intro", kind: "intro", title: "Show me around", text: "A quick look at how the planner works. About a minute." },
+  { id: "add-course", nav: [{ tab: "courses" }], target: "addCourse", handsOn: true,
+    advanceWhen: function(){ return view.screen === "add"; },
+    title: "Add a course", text: "Start here. Tap + Add course (or Next).",
+    textNoTarget: "Set your term dates on this screen first. Then + Add course shows up under Courses." },
+  { id: "copy-prompt", nav: [{ screen: "add" }], target: "copyPrompt", handsOn: true, advanceOnTap: true,
+    title: "Copy the prompt", text: "Paste it into your AI chat with your outline attached. Then paste the AI's reply back here." },
+  { id: "review", nav: [{ screen: "add" }], target: "paste",
+    title: "Check it over", text: "After you paste, you get a review. Pick your sections and fix anything odd. Nothing saves until it looks right." },
+  { id: "tick", nav: [{ tab: "today" }, { tab: "checklist" }], target: "firstItem",
+    title: "Tick things off", text: "Today and Checklist show what's due. Tick each one as you finish it.",
+    textNoTarget: "Once a course is in, Today and Checklist list what's due. Tick each one as you finish it." },
+  { id: "grades", nav: [{ tab: "grades" }], target: "marks",
+    title: "Your grades", text: "Type marks here as they come in. The summary shows where you stand and what you still need.",
+    textNoTarget: "Once a course is in, Grades is where you type your marks and see what you still need." },
+  { id: "good-to-know", kind: "end", title: "Good to know",
+    text: "Your planner lives only on this device. Export a backup from Settings now and then. To install it: Share, then Add to Home Screen (iPhone), or the Chrome menu, then Install app (Android)." }
 ];
 function shouldTourAfterWelcome(firstRun, ui){ return !!firstRun && !(ui && ui.tourDone); }
-function openTour(i){
-  var d = document.getElementById("tour"), body = document.getElementById("tour-body");
-  if (!d || !body) return;
-  var n = Math.max(0, Math.min(TOUR_STEPS.length - 1, i || 0)), s = TOUR_STEPS[n], last = n === TOUR_STEPS.length - 1;
+function isTourTrigger(node){ return !!(node && node.closest && node.closest('[data-action="tour"]')); }
+function tourDoneUi(ui){ var o = {}, k; for (k in (ui || {})) o[k] = ui[k]; o.tourDone = true; return o; }
+function tourBlocked(){ return view.screen === "review" ? "Finish or cancel this review first, then take the tour." : null; }
+/* Pure placement: rect/card/vp are plain {top,left,width,height} / {w,h} / {w,h}. Returns the padded hole (or null) and the card position. */
+function tourPlace(rect, card, vp){
+  var pad = 6, w = card.w, h = card.h;
+  function free(){ return { hole: null, left: Math.max(0, (vp.w - w) / 2), top: Math.max(12, (vp.h - h) / 2), side: "free" }; }
+  if (!rect || (!rect.width && !rect.height)) return free();
+  var x0 = Math.max(0, rect.left - pad), y0 = Math.max(0, rect.top - pad),
+      x1 = Math.min(vp.w, rect.left + rect.width + pad), y1 = Math.min(vp.h, rect.top + rect.height + pad);
+  if (x1 <= x0 || y1 <= y0) return free();
+  var hole = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  var left = Math.max(12, Math.min(hole.x + hole.w / 2 - w / 2, vp.w - w - 12));
+  var below = vp.h - (hole.y + hole.h) - 12, above = hole.y - 12, top, side;
+  if (below >= h + 10) { top = hole.y + hole.h + 10; side = "below"; }
+  else if (above >= h + 10) { top = hole.y - 10 - h; side = "above"; }
+  else { side = "over"; top = Math.max(12, Math.min(below >= above ? hole.y + hole.h + 10 : hole.y - 10 - h, vp.h - h - 12)); }
+  return { hole: hole, left: left, top: top, side: side };
+}
+/* Card content for step i. untargeted: show textNoTarget (when the step has one) instead of text. Pure: builds nodes only. */
+function tourCardNode(i, untargeted){
+  var s = TOUR_STEPS[i], total = TOUR_STEPS.length - 1, wrap = el("div");
+  var text = untargeted && s.textNoTarget ? s.textNoTarget : s.text;
+  if (s.kind !== "intro") wrap.appendChild(el("div", { class: "hint", text: "Step " + i + " of " + total }));
+  wrap.appendChild(el("h2", { id: "tour-title", style: "font-size:1.2rem;margin:4px 0 6px", text: s.title }));
+  wrap.appendChild(el("p", { text: text }));
+  var btns;
+  if (s.kind === "intro") btns = [
+    el("button", { class: "btn", on: { click: function(){ tourGo(1); } }, text: "Start" }),
+    el("button", { class: "btn ghost", on: { click: function(){ endTour(); } }, text: "Not now" }) ];
+  else btns = [
+    el("button", { class: "btn ghost", disabled: i === 1, on: { click: function(){ tourGo(i - 1); } }, text: "Back" }),
+    el("button", { class: "btn", on: { click: function(){ if (s.kind === "end") endTour(); else tourGo(i + 1); } }, text: s.kind === "end" ? "Finish" : "Next" }),
+    el("button", { class: "btn ghost", on: { click: function(){ endTour(); } }, text: "Skip" }) ];
+  wrap.appendChild(el("div", { class: "row", style: "margin-top:10px" }, btns));
+  return wrap;
+}
+/* Tour runtime. The only data it ever writes is ui.tourDone, in endTour. */
+var Tour = { on: false, i: 0, el: null, target: null, navigating: false, raf: null, retried: false, found: false };
+function tourResolve(s){ var f = s && s.target && TOUR_TARGETS[s.target]; return f ? f(UI.main()) : null; }
+function tourApplyNav(n){
+  if (n.tab) { view.screen = null; UI.setTab(n.tab); }
+  else if (n.screen === "add" && view.screen !== "add") { view.screen = "add"; view.reimportKey = null; render(); }
+}
+function tourShowCard(i){
+  var body = document.getElementById("tour-body"), s = TOUR_STEPS[i];
+  Tour.found = !!Tour.target;
   body.textContent = "";
-  body.appendChild(el("div", { class: "hint", text: "Step " + (n + 1) + " of " + TOUR_STEPS.length }));
-  body.appendChild(el("h2", { id: "tour-title", style: "font-size:1.2rem;margin:4px 0 6px", text: s.title }));
-  body.appendChild(el("p", { text: s.text }));
-  body.appendChild(el("div", { class: "row", style: "margin-top:10px" }, [
-    el("button", { class: "btn ghost", disabled: n === 0, on: { click: function(){ openTour(n - 1); } }, text: "Back" }),
-    el("button", { class: "btn", on: { click: function(){ if (last) d.close(); else openTour(n + 1); } }, text: last ? "Finish" : "Next" }),
-    el("button", { class: "btn ghost", on: { click: function(){ d.close(); } }, text: "Skip" }) ]));
-  if (!d.open) d.showModal();
+  body.appendChild(tourCardNode(i, !!s.target && !Tour.found));
+  Tour.el.setAttribute("data-step", s.id);
+  Tour.el.setAttribute("data-target", !s.target ? "none" : Tour.found ? "found" : "none");
+}
+function tourGo(i){
+  var s = TOUR_STEPS[i]; if (!s || !Tour.el) return;
+  Tour.i = i; Tour.retried = false; Tour.target = null;
+  if (s.nav) {
+    Tour.navigating = true;
+    try {
+      for (var k = 0; k < s.nav.length; k++) {
+        tourApplyNav(s.nav[k]);
+        Tour.target = tourResolve(s);
+        if (Tour.target || !s.target) break;
+      }
+    } catch (e) { /* a failed nav still leaves a readable untargeted card */ }
+    finally { Tour.navigating = false; }
+  } else if (s.target) Tour.target = tourResolve(s);
+  tourShowCard(i);
+  if (Tour.target) { try { Tour.target.scrollIntoView({ block: "center", inline: "nearest" }); } catch (e) { /* ignore */ } }
+  var primary = document.querySelector("#tour-body button.btn:not(.ghost)");
+  if (primary) { try { primary.focus({ preventScroll: true }); } catch (e) { /* ignore */ } }
+  tourSchedule();
+}
+function tourAfterRender(){
+  if (Tour.navigating || !Tour.on) return;
+  var s = TOUR_STEPS[Tour.i];
+  if (s.advanceWhen && s.advanceWhen()) { tourGo(Tour.i + 1); return; }
+  if (s.target) {
+    Tour.target = tourResolve(s);
+    if (!!Tour.target !== Tour.found) tourShowCard(Tour.i);
+  }
+  Tour.retried = false;
+  tourSchedule();
+}
+function tourSchedule(){
+  if (!Tour.on || Tour.raf !== null) return;
+  var run = function(){ Tour.raf = null; tourPosition(); };
+  Tour.raf = typeof requestAnimationFrame === "function" ? requestAnimationFrame(run) : setTimeout(run, 16);
+}
+function tourPosition(){
+  if (!Tour.on || !Tour.el) return;
+  var root = Tour.el, s = TOUR_STEPS[Tour.i], body = document.getElementById("tour-body");
+  var t = Tour.target && Tour.target.isConnected ? Tour.target : null;
+  var r = t ? t.getBoundingClientRect() : { top: 0, left: 0, width: 0, height: 0 };
+  if (t && !r.width && !r.height && !Tour.retried) { Tour.retried = true; tourSchedule(); return; }
+  var de = document.documentElement, vp = { w: window.innerWidth || de.clientWidth, h: window.innerHeight || de.clientHeight };
+  var card = { w: body.offsetWidth || Math.min(340, vp.w - 24), h: body.offsetHeight || 160 };
+  var p = tourPlace({ top: r.top, left: r.left, width: r.width, height: r.height }, card, vp);
+  function box(n, x, y, w, h){ n.style.left = x + "px"; n.style.top = y + "px"; n.style.width = Math.max(0, w) + "px"; n.style.height = Math.max(0, h) + "px"; }
+  var blocks = {}; root.querySelectorAll(".tour-block[data-side]").forEach(function(b){ blocks[b.getAttribute("data-side")] = b; });
+  var cover = root.querySelector(".tour-cover"), frame = root.querySelector(".tour-frame");
+  root.classList.toggle("free", !p.hole);
+  if (p.hole) {
+    var H = p.hole;
+    box(frame, H.x, H.y, H.w, H.h);
+    box(blocks.top, 0, 0, vp.w, H.y); box(blocks.bottom, 0, H.y + H.h, vp.w, vp.h - H.y - H.h);
+    box(blocks.left, 0, H.y, H.x, H.h); box(blocks.right, H.x + H.w, H.y, vp.w - H.x - H.w, H.h);
+    box(cover, H.x, H.y, H.w, H.h); cover.hidden = !!s.handsOn;
+  } else {
+    box(blocks.top, 0, 0, vp.w, vp.h); box(blocks.bottom, 0, 0, 0, 0); box(blocks.left, 0, 0, 0, 0); box(blocks.right, 0, 0, 0, 0);
+    cover.hidden = true;
+  }
+  body.style.left = p.left + "px"; body.style.top = p.top + "px";
+}
+var tourOnKey = function(ev){ if (ev.key === "Escape") endTour(); };
+var tourOnClick = function(ev){
+  var s = TOUR_STEPS[Tour.i];
+  if (Tour.on && s && s.advanceOnTap && Tour.target && Tour.target.contains(ev.target)) tourGo(Tour.i + 1);
+};
+var tourOnMove = function(){ tourSchedule(); };
+function openTour(i){
+  if (Tour.on) { tourGo(i || 0); return; }
+  var msg = tourBlocked(); if (msg) { UI.toast(msg); return; }
+  var d = document.getElementById("tour"); if (!d) return;
+  Tour.el = d; Tour.on = true; d.hidden = false; d.setAttribute("open", "");
+  document.addEventListener("keydown", tourOnKey);
+  document.addEventListener("click", tourOnClick);
+  window.addEventListener("resize", tourOnMove);
+  window.addEventListener("scroll", tourOnMove, { passive: true, capture: true });
+  tourGo(i || 0);
+}
+function endTour(){
+  var d = Tour.el;
+  document.removeEventListener("keydown", tourOnKey);
+  document.removeEventListener("click", tourOnClick);
+  window.removeEventListener("resize", tourOnMove);
+  window.removeEventListener("scroll", tourOnMove, { passive: true, capture: true });
+  Tour.on = false; Tour.target = null;
+  if (d) { document.getElementById("tour-body").textContent = ""; d.hidden = true; d.removeAttribute("open"); d.removeAttribute("data-step"); d.removeAttribute("data-target"); }
+  state.ui = tourDoneUi(state.ui); Store.save();
+  view.screen = null; UI.setTab("courses");
+  var t = TOUR_TARGETS.addCourse(UI.main());
+  if (t) { try { t.scrollIntoView({ block: "center", inline: "nearest" }); t.focus(); } catch (e) { /* ignore */ } }
 }
 /* Registers sw.js only when served over http(s). Without the companion files, or from file://, this fails quietly. */
 function registerOffline(){
@@ -3937,9 +4172,7 @@ function registerOffline(){
     if (go) openTour(0);
   });
   welcome.addEventListener("click", function(ev){ if (ev.target === welcome) welcome.close(); });
-  var tour = document.getElementById("tour");
-  tour.addEventListener("close", function(){ state.ui = state.ui || {}; state.ui.tourDone = true; Store.save(); });
-  tour.addEventListener("click", function(ev){ if (ev.target === tour) tour.close(); });
+  document.addEventListener("click", function(ev){ if (isTourTrigger(ev.target)) openTour(0); });
   render();
   if (view.resumeAsk) askResume();
   else if (firstRun && !selfTest) { buildWelcome(); welcome.showModal(); }
