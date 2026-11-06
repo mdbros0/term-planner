@@ -79,7 +79,7 @@
 /* ===== CSS 2: base and layout ===== */
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--ink);font-family:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:16px;line-height:1.45}
-body{padding-bottom:110px}
+body{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
 button,input,select,textarea{font:inherit;color:inherit}
 :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
@@ -91,13 +91,21 @@ main{max-width:820px;margin:0 auto;padding:12px 14px}
 nav.tabs{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--panel);border-top:1px solid var(--line);z-index:20;padding-bottom:env(safe-area-inset-bottom)}
 nav.tabs button{flex:1;background:none;border:0;padding:8px 2px;color:var(--muted);font-size:.8rem;cursor:pointer;min-height:52px}
 nav.tabs button[aria-current="page"]{color:var(--accent);font-weight:700;box-shadow:inset 0 3px 0 var(--accent)}
+#mode-bar{max-width:820px;margin:0 auto;padding:8px 14px 0}
+nav.tabs .nav-settings{display:none}
 @media (min-width:760px){
-  body{padding-bottom:20px}
-  nav.tabs{position:sticky;top:0;bottom:auto;border-top:0;border-bottom:1px solid var(--line)}
   header.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px;justify-content:space-between}
   header.top .wrap{max-width:820px;margin:0 auto;width:100%;display:flex;flex-wrap:wrap;align-items:center;gap:12px;justify-content:space-between}
-  nav.tabs{justify-content:center}
-  nav.tabs button{flex:0 1 150px}
+}
+/* Below 1024px the tab bar stays pinned to the viewport bottom (body padding keeps content clear of it).
+   From 1024px it becomes a left sidebar and the content column is capped and centred in the space that remains. */
+@media (min-width:1024px){
+  body{padding:0 0 20px 220px}
+  nav.tabs{top:0;bottom:0;right:auto;width:220px;flex-direction:column;border-top:0;border-right:1px solid var(--line);padding:12px 0}
+  nav.tabs button{flex:0 0 auto;text-align:left;padding:12px 18px;font-size:.95rem}
+  nav.tabs button[aria-current="page"]{box-shadow:inset 3px 0 0 var(--accent)}
+  nav.tabs .nav-settings{display:block;margin-top:auto}
+  main,#mode-bar,header.top .wrap{max-width:880px;margin-left:auto;margin-right:auto}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
@@ -108,6 +116,11 @@ nav.tabs button[aria-current="page"]{color:var(--accent);font-weight:700;box-sha
 .seg{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
 .chip{border:1px solid var(--line);border-radius:999px;padding:4px 12px;background:var(--panel);cursor:pointer;min-height:36px}
 .chip[aria-pressed="true"],.chip[aria-selected="true"]{background:var(--ink);color:var(--bg)}
+/* Week bubbles: fixed box so every bubble is identical; current week = inset ring + colour only, never a border-width change */
+.wk{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;width:68px;height:52px;padding:0 4px;border:1px solid var(--line);border-radius:12px;background:var(--panel);cursor:pointer}
+.wk-n{font-size:.85rem;line-height:1.1;white-space:nowrap}
+.wk-bar{display:block;width:40px;height:6px;flex:0 0 6px}
+.wk[aria-current="true"]{box-shadow:inset 0 0 0 2px var(--ink);border-color:var(--ink);font-weight:700}
 .btn{border:1px solid var(--accent);background:var(--accent);color:var(--bg);border-radius:10px;padding:8px 14px;cursor:pointer;min-height:40px}
 .btn.ghost{background:var(--panel);color:var(--accent)}
 .btn.danger{background:var(--warn);border-color:var(--warn)}
@@ -125,6 +138,11 @@ input[type=checkbox]{width:22px;height:22px;accent-color:var(--accent);flex:0 0 
 .item.done .t{text-decoration:line-through;color:var(--muted)}
 .item .when{text-align:right;font-size:.9rem;min-width:84px}
 .item .when b{display:block}
+.item .t{overflow-wrap:anywhere}
+/* Undated or long-label rows: label on its own full-width line under the title, indented past the checkbox (22px + 10px gap) */
+.item.long{flex-wrap:wrap}
+.item .when-line{flex:1 0 100%;padding-left:32px;font-size:.9rem;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.item .when-line.flush{padding-left:0}
 .tag{display:inline-block;border-radius:5px;padding:0 6px;font-size:.78rem;margin-right:4px}
 .tag.must{background:#FFF0C2;color:#5A3D00}
 :root[data-theme="dark"] .tag.must{background:#3A3010;color:#F0C27A}
@@ -141,7 +159,7 @@ input[type=checkbox]{width:22px;height:22px;accent-color:var(--accent);flex:0 0 
 details.week{border:1px solid var(--line);border-radius:12px;background:var(--panel);margin-bottom:10px;padding:0 12px}
 details.week>summary{cursor:pointer;padding:10px 0;font-weight:700}
 .toast{position:fixed;left:12px;right:12px;bottom:70px;max-width:520px;margin:0 auto;background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:10px;z-index:40}
-@media (min-width:760px){.toast{bottom:20px}}
+@media (min-width:1024px){.toast{bottom:20px;left:232px}}
 dialog{border:0;border-radius:14px;background:var(--panel);color:var(--ink);padding:0;width:min(560px,96vw);max-height:88vh}
 dialog::backdrop{background:rgba(0,0,0,.4)}
 dialog .in{padding:14px 16px}
@@ -186,7 +204,7 @@ table.grid input{min-width:0}
   <button class="theme-btn" id="settings-btn" type="button">Settings</button>
   <button class="theme-btn" id="theme-btn" aria-label="Toggle dark mode">Dark</button></div>
 </div></header>
-<div id="mode-bar" style="max-width:820px;margin:0 auto;padding:8px 14px 0"></div>
+<div id="mode-bar"></div>
 <main id="view" tabindex="-1"></main>
 <nav class="tabs" aria-label="Main">
   <button data-tab="today">Today</button>
@@ -194,9 +212,11 @@ table.grid input{min-width:0}
   <button data-tab="calendar">Calendar</button>
   <button data-tab="grades">Grades</button>
   <button data-tab="courses">Courses</button>
+  <button type="button" data-action="settings" class="nav-settings">Settings</button>
 </nav>
 <dialog id="sheet" aria-labelledby="sheet-title"><div class="in" id="sheet-body"></div></dialog>
 <dialog id="welcome" aria-labelledby="welcome-title"><div class="in" id="welcome-body"></div></dialog>
+<dialog id="tour" aria-labelledby="tour-title"><div class="in" id="tour-body"></div></dialog>
 <div id="toast-host" aria-live="polite"></div>
 <!-- Guide prompts, verbatim from COURSE_IMPORT_GUIDE.md section 2 (PLAN R7). Filled by fillPrompt() / fixPrompt(). -->
 <script type="text/plain" id="ai-prompt">
@@ -221,6 +241,7 @@ STRICT RULES
 12. "tips": 1–4 short, factual bullets from the outline specific to that item (format, late policy, what to bring). Paraphrase; don't copy long passages.
 13. "source": where in the outline you found it (e.g. "Schedule, Week 5" or "Assessment table").
 14. "confidence": "high" if stated plainly, "low" if you had to interpret.
+15. Sections: list EVERY section of every type (lab, tutorial) in course.sections with its id, day, start time and location. If the course has several lecture sections, give each lecture class entry its own days, times and location. For every class entry that belongs to one section, put that section's id in "section"; use null only for classes everyone attends. (The student will be asked which section is theirs after the JSON is pasted back into the planner, so do not ask them.)
 
 SCHEMA
 {
@@ -498,14 +519,51 @@ Term.dayEffective = function(T, d){                  // weekday that a date runs
   for (var i = 0; i < T.rescheduled.length; i++) if (T.rescheduled[i].date === d) return T.rescheduled[i].followsDay;
   return DAY_NAMES[Dt.wd(d)];
 };
-Term.classesOn = function(T, d){                     // [{courseKey, cls}] for a date, from template.classes
+/* Sections: read from the import JSON only (template.sections + classes[].section), so the import schema is unchanged.
+   A section id lives on a `sections` row (lab / tutorial) or only on class entries (per-section lectures). */
+var Sections = {};
+Sections.row = function(t, cls){                     // the sections row a tagged class belongs to; same-type row wins when ids repeat
+  var rows = (t.sections || []).filter(function(s){ return s.id === cls.section; });
+  return rows.filter(function(s){ return s.type === cls.type; })[0] || rows[0] || null;
+};
+Sections.tagged = function(cls){ return cls.section !== null && cls.section !== undefined && cls.section !== ""; };
+Sections.typeOf = function(t, cls){ var r = Sections.row(t, cls); return r ? r.type : (cls.type || "lecture"); };
+Sections.types = function(t){                        // ordered unique section types of a course
+  var out = [];
+  (t.sections || []).forEach(function(s){ if (s.type && out.indexOf(s.type) < 0) out.push(s.type); });
+  (t.classes || []).forEach(function(c){ if (Sections.tagged(c)) { var ty = Sections.typeOf(t, c); if (out.indexOf(ty) < 0) out.push(ty); } });
+  return out;
+};
+Sections.options = function(t, type){                // [{id, day, start, location}] pickable for one type
+  var out = [], seen = {};
+  (t.sections || []).forEach(function(s){
+    if (s.type === type && !seen[s.id]) { seen[s.id] = true; out.push({ id: s.id, day: s.day || null, start: s.start || null, location: s.location || null }); }
+  });
+  (t.classes || []).forEach(function(c){
+    if (!Sections.tagged(c) || seen[c.section] || Sections.typeOf(t, c) !== type) return;
+    seen[c.section] = true; out.push({ id: c.section, day: (c.days || [])[0] || null, start: c.start || null, location: c.location || null });
+  });
+  return out;
+};
+Sections.label = function(o){ return o.id + (o.day || o.start ? " · " + [o.day, Dt.timeLabel(o.start)].filter(Boolean).join(" ") : "") + (o.location ? " · " + o.location : ""); };
+Sections.pick = function(course, type){              // the student's pick for a type, only if it still exists in the course
+  var id = course.section && course.section[type];
+  return id && Sections.options(course.template, type).some(function(o){ return o.id === id; }) ? id : null;
+};
+/* [{courseKey, cls, pending?, sectionType?}] for a date. Classes with section:null always show. A class tied to a section shows only if it is the
+   student's pick for that type; with no pick (or a stale one) it is returned with pending:true so views can ask for the pick instead of hiding it. */
+Term.classesOn = function(T, d){
   var out = [];
   if (!T || !d || d < T.cs || (T.ce && d > T.ce) || T.inBreak(d)) return out;
   var eff = Term.dayEffective(T, d);
   Object.keys(state.courses).forEach(function(key){
-    var t = state.courses[key].template;
+    var c = state.courses[key], t = c.template;
     (t.classes || []).forEach(function(cls){
-      if ((cls.days || []).indexOf(eff) >= 0) out.push({ courseKey: key, cls: cls });
+      if ((cls.days || []).indexOf(eff) < 0) return;
+      if (!Sections.tagged(cls)) { out.push({ courseKey: key, cls: cls }); return; }
+      var type = Sections.typeOf(t, cls), pick = Sections.pick(c, type);
+      if (!pick) out.push({ courseKey: key, cls: cls, pending: true, sectionType: type });
+      else if (pick === cls.section) out.push({ courseKey: key, cls: cls });
     });
   });
   return out;
@@ -1473,7 +1531,7 @@ function applyTheme(){
 UI.setTab = function(tab){
   view.tab = tab;
   if (location.hash !== "#" + tab) history.replaceState(null, "", "#" + tab);
-  document.querySelectorAll("nav.tabs button").forEach(function(b){
+  document.querySelectorAll("nav.tabs button[data-tab]").forEach(function(b){
     if (b.getAttribute("data-tab") === tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
   });
   render();
@@ -1503,14 +1561,17 @@ UI.itemRow = function(e, opts){
   var overdue = e.date && e.date < today && !e.done;
   var cb = el("input", { type: "checkbox", checked: e.done, "aria-label": "Done: " + e.title,
     on: { change: function(ev){ UI.toggleDone(e.id, ev.target.checked); render(); } } });
+  // Rows with no concrete date, or a long label, put the label on its own full-width line instead of the side column.
+  var label = UI.whenText(e), long = UI.isLongWhen(e);
   var when = e.date ? [el("b", { text: Dt.short(e.date) }), e.time ? el("div", { class: "muted", text: Dt.timeLabel(e.time) }) : null]
-    : [el("div", { class: "muted", text: e.relativeReason || e.item && e.item.dateLabel || "No date yet" })];
+    : [el("div", { class: "muted", text: label })];
   var win = null;
   if (e.window && e.window.open) {
     var openDay = e.window.open.slice(0, 10);
     win = el("div", { class: "hint", text: today < openDay ? "Opens " + Dt.short(openDay) : "Open now" });
   }
-  return el("div", { class: "item" + (e.done ? " done" : "") }, [
+  var showDue = e.dateLabel && !(long && e.dateLabel === label);   // the long row already prints the label once
+  return el("div", { class: "item" + (long ? " long" : "") + (e.done ? " done" : "") }, [
     cb,
     el("div", { class: "t-wrap grow", style: "flex:1;min-width:0" }, [
       el("button", { class: "t", on: { click: function(){ openTask(e.id); } } }, [
@@ -1518,12 +1579,20 @@ UI.itemRow = function(e, opts){
         el("span", { style: e.tier === "graded" ? "font-weight:700" : "", text: e.title }) ]),
       el("div", { class: "hint" }, [
         overdue ? el("span", { class: "over", text: "Overdue: " }) : null,
-        e.dateLabel ? "Due " + e.dateLabel + " " : "",
+        showDue ? "Due " + e.dateLabel + " " : "",
         UI.tagTier(e.tier) ]),
       win ]),
-    el("div", { class: "when" }, [when, UI.weightBadge(e.weight)])
+    long ? el("div", { class: "when-line" }, [el("span", { text: label }), UI.weightBadge(e.weight)])
+      : el("div", { class: "when" }, [when, UI.weightBadge(e.weight)])
   ]);
 };
+/* The date column text for a list row: the short date when dated, else the reason or label, else "No date yet". */
+UI.whenText = function(e){
+  if (e.date) return Dt.short(e.date);
+  return e.relativeReason || e.item && e.item.dateLabel || e.dateLabel || "No date yet";
+};
+UI.LONG_WHEN = 24;
+UI.isLongWhen = function(e){ return !e.date || UI.whenText(e).length > UI.LONG_WHEN; };
 function openTask(id){
   var list = Model.build(), e = list.filter(function(x){ return x.id === id; })[0];
   if (!e) return;
@@ -1568,8 +1637,12 @@ function openTask(id){
   UI.openSheet(e.title, wrap);
 }
 /* ===== JS 10: router, Today, Checklist ===== */
+/* Header Settings button and the sidebar Settings button (shown from 1024px) both toggle the Settings screen. */
+function openSettings(){ view.screen = view.screen === "settings" ? null : "settings"; render(); }
 function render(){
   UI.header(); UI.modeBar(); UI.themeBtn();
+  var ns = document.querySelector("nav.tabs .nav-settings");
+  if (ns) { if (view.screen === "settings") ns.setAttribute("aria-current", "page"); else ns.removeAttribute("aria-current"); }
   if (view.screen) { var s = SCREENS[view.screen]; if (s) { UI.setMain(s()); return; } }
   if (!state.term) { UI.setMain(screenSetup()); return; }
   var tabs = { today: viewToday, checklist: viewChecklist, calendar: viewCalendar, grades: viewGrades, courses: viewCourses };
@@ -1638,10 +1711,8 @@ function viewToday(){
     el("h2", { text: "Big deadlines coming up" }), big.map(function(e){ return UI.itemRow(e); }) ]));
   var cls = [];
   [["Today", today], ["Tomorrow", Dt.add(today, 1)]].forEach(function(p){
-    Term.classesOn(T, p[1]).forEach(function(x){
-      cls.push(el("div", { class: "item" }, [ UI.tagCourse(x.courseKey),
-        el("div", { text: p[0] + ": " + (x.cls.type || "class") + " " + Dt.timeLabel(x.cls.start) + " – " + Dt.timeLabel(x.cls.end) + (x.cls.location ? ", " + x.cls.location : "") }) ]));
-    });
+    cls = cls.concat(classRows(Term.classesOn(T, p[1]), function(x){
+      return p[0] + ": " + (x.cls.type || "class") + " " + Dt.timeLabel(x.cls.start) + " – " + Dt.timeLabel(x.cls.end) + (x.cls.location ? ", " + x.cls.location : ""); }));
   });
   if (cls.length) wrap.appendChild(el("section", { class: "card", "aria-label": "Classes" }, [el("h2", { text: "Classes" }), cls]));
   var glance = Object.keys(state.courses).map(function(key){
@@ -1657,19 +1728,36 @@ function viewToday(){
     el("h2", { style: "font-size:1.05rem", text: "Grades at a glance" + (avg !== null ? " · average " + Grade.fmt0(avg) + "%" : "") }), glance ]));
   return wrap;
 }
+/* Class sessions as rows. The student's own (and section-less) classes are plain rows; sessions of a section the student has not picked yet are
+   grouped per course and type under one "Pick your <type> section to see only yours" line and shown muted, never as if they were all theirs. */
+function classRows(entries, fmt){
+  var rows = [], groups = {}, order = [];
+  entries.forEach(function(x){
+    if (!x.pending) { rows.push(el("div", { class: "item" }, [UI.tagCourse(x.courseKey), el("div", { text: fmt(x) })])); return; }
+    var g = x.courseKey + "|" + x.sectionType;
+    if (!groups[g]) { groups[g] = { key: x.courseKey, type: x.sectionType, list: [] }; order.push(g); }
+    groups[g].list.push(x);
+  });
+  order.forEach(function(g){
+    var G = groups[g];
+    rows.push(el("div", { class: "item pending-sections", style: "display:block" }, [
+      el("div", { class: "row" }, [UI.tagCourse(G.key),
+        el("button", { class: "btn ghost", on: { click: function(){ view.course = G.key; view.screen = null; UI.setTab("courses"); } }, text: "Pick your " + G.type + " section to see only yours" })]),
+      G.list.map(function(x){ return el("div", { class: "muted", text: fmt(x) + " (section " + x.cls.section + ")" }); }) ]));
+  });
+  return rows;
+}
 function sectionPicker(key){
-  var c = state.courses[key], secs = c.template.sections || [];
-  if (!secs.length) return null;
-  var types = [];
-  secs.forEach(function(s){ if (types.indexOf(s.type) < 0) types.push(s.type); });
+  var c = state.courses[key], types = Sections.types(c.template);
+  if (!types.length) return null;
   return el("div", { class: "card", "aria-label": "Section picker" }, types.map(function(t){
-    var opts = secs.filter(function(s){ return s.type === t; });
+    var opts = Sections.options(c.template, t);
     return el("label", { class: "f" }, [
       el("span", { text: "Your " + t + " section (" + UI.courseCode(key) + ")" }),
       el("select", { on: { change: function(ev){
         c.section = c.section || {}; c.section[t] = ev.target.value || null; Store.save(); render(); } } },
         [el("option", { value: "", text: "Pick one" })].concat(opts.map(function(s){
-          return el("option", { value: s.id, selected: c.section && c.section[t] === s.id, text: s.id + " · " + s.day + " " + Dt.timeLabel(s.start) + (s.location ? " · " + s.location : "") }); }))) ]);
+          return el("option", { value: s.id, selected: c.section && c.section[t] === s.id, text: Sections.label(s) }); }))) ]);
   }));
 }
 function viewChecklist(){
@@ -1696,13 +1784,7 @@ function viewChecklist(){
   var curG = T ? Term.groupOf(T, Dt.today()) : null;
   // week ribbon
   wrap.appendChild(el("nav", { class: "seg", "aria-label": "Weeks" }, groups.map(function(g){
-    var mine = fl.filter(function(e){ return e.group === g.id; });
-    var dn = mine.filter(function(e){ return e.done; }).length;
-    var short = g.kind === "week" ? String(g.n) : g.kind === "break" ? "Break" : g.kind === "exam" ? "Exams" : g.id === "nodate" ? "No date" : g.label;
-    return el("button", { class: "chip", style: g.id === curG ? "border:3px solid var(--ink)" : "", "aria-label": g.label + ", " + dn + " of " + mine.length + " done",
-      on: { click: function(){ var d = document.getElementById("wk-" + g.id); if (d) { d.open = true; d.scrollIntoView({ block: "start" }); } } } }, [
-      el("span", { text: short }),
-      el("div", { class: "bar", style: "width:40px", "aria-hidden": "true" }, [el("i", { style: "width:" + (mine.length ? Math.round(dn / mine.length * 100) : 0) + "%" })]) ]);
+    return weekBubble(g, fl.filter(function(e){ return e.group === g.id; }), g.id === curG);
   })));
   wrap.appendChild(addTaskForm());
   groups.forEach(function(g){
@@ -1719,6 +1801,15 @@ function viewChecklist(){
     wrap.appendChild(d);
   });
   return wrap;
+}
+/* One week-selector bubble. Every bubble has the same size and structure (number, then bar); the current week differs only by aria-current (ring drawn in CSS). */
+function weekBubble(g, mine, isCurrent){
+  var dn = mine.filter(function(e){ return e.done; }).length;
+  var short = g.kind === "week" ? String(g.n) : g.kind === "break" ? "Break" : g.kind === "exam" ? "Exams" : g.id === "nodate" ? "No date" : g.label;
+  return el("button", { class: "wk", type: "button", "aria-current": isCurrent ? "true" : null, "aria-label": g.label + ", " + dn + " of " + mine.length + " done",
+    on: { click: function(){ var d = document.getElementById("wk-" + g.id); if (d) { d.open = true; d.scrollIntoView({ block: "start" }); } } } }, [
+    el("span", { class: "wk-n", text: short }),
+    el("span", { class: "bar wk-bar", "aria-hidden": "true" }, [el("i", { style: "width:" + (mine.length ? Math.round(dn / mine.length * 100) : 0) + "%" })]) ]);
 }
 function checklistRow(e){
   var row = UI.itemRow(e);
@@ -1778,7 +1869,7 @@ function viewCalendar(){
         var c = state.courses[e.courseKey], col = c ? "var(--c" + (c.color || 0) + ")" : "var(--muted)";
         return el("i", { class: e.done ? "d" : (e.tier === "graded" ? "o" : ""), style: e.tier === "graded" && !e.done ? "border-color:" + col : "background:" + col, "aria-hidden": "true" });
       });
-      var brk = T.inBreak(d), isClass = Term.classesOn(T, d).length > 0;
+      var brk = T.inBreak(d), isClass = Term.classesOn(T, d).some(function(x){ return !x.pending; });
       var sel = view.calDay === d;
       cells.push(el("button", { class: (inMonth ? "" : "off ") + (d === today ? "today " : "") + (sel ? "sel" : ""),
         "aria-label": Dt.short(d) + (items.length ? ", " + items.length + " items" : "") + (brk ? ", " + brk.label : "") + (d === T.ce ? ", last class" : ""),
@@ -1794,9 +1885,8 @@ function viewCalendar(){
   }
   if (view.calDay) {
     var sd = view.calDay, dayItems = list.filter(function(e){ return e.date === sd; }).sort(cmpItems);
-    var cls = Term.classesOn(T, sd).map(function(x){
-      return el("div", { class: "item" }, [UI.tagCourse(x.courseKey), el("div", { text: "Class " + Dt.timeLabel(x.cls.start) + " – " + Dt.timeLabel(x.cls.end) + (x.cls.location ? ", " + x.cls.location : "") })]);
-    });
+    var cls = classRows(Term.classesOn(T, sd), function(x){
+      return "Class " + Dt.timeLabel(x.cls.start) + " – " + Dt.timeLabel(x.cls.end) + (x.cls.location ? ", " + x.cls.location : ""); });
     wrap.appendChild(el("section", { class: "card", "aria-label": "Selected day" }, [
       el("h2", { text: Dt.short(sd) + (T.inBreak(sd) ? " · " + T.inBreak(sd).label : "") }),
       cls.length ? el("div", null, [el("h3", { style: "font-size:1rem", text: "Classes" }), cls]) : null,
@@ -1896,6 +1986,7 @@ function viewCourses(){
   var keys = Object.keys(state.courses);
   if (!view.course || !state.courses[view.course]) view.course = keys[0];
   var key = view.course, c = state.courses[key], t = c.template, wrap = el("div");
+  var rep = replaceSampleCard(); if (rep) wrap.appendChild(rep);
   wrap.appendChild(el("div", { class: "seg", role: "group", "aria-label": "Course" }, keys.map(function(k){
     return el("button", { class: "chip", "aria-pressed": k === key ? "true" : "false", on: { click: function(){ view.course = k; render(); } } }, [UI.dot(k), UI.courseShort(k)]); })
     .concat([el("button", { class: "chip", on: { click: function(){ view.screen = "add"; render(); } }, text: "+ Add course" })])));
@@ -1920,7 +2011,7 @@ function viewCourses(){
     dated.map(function(e){ return el("div", { class: "item " + (e.date < today && !e.done ? "" : "") + (e.date < today ? "muted" : "") }, [
       el("div", { class: "t", text: (e.done ? "✓ " : "") + e.title }), el("div", { class: "when", text: Dt.short(e.date) + (e.time ? " " + Dt.timeLabel(e.time) : "") + (e.weight !== null && e.weight !== undefined ? " · " + e.weight + "%" : "") }) ]); }),
     undated.length ? el("h3", { style: "font-size:1rem", text: "No date yet" }) : null,
-    undated.map(function(e){ return el("div", { class: "item" }, [el("div", { class: "t", text: e.title }), el("div", { class: "when muted", text: e.dateLabel || e.relativeReason || "TBD" })]); }) ]));
+    undated.map(function(e){ return el("div", { class: "item long" }, [el("div", { class: "t", text: e.title }), el("div", { class: "when-line flush", text: UI.whenText(e) })]); }) ]));
   var sec = sectionPicker(key); if (sec) wrap.appendChild(sec);
   wrap.appendChild(listCard("Rules that cost marks", t.rules));
   wrap.appendChild(listCard(t.unitsTitle || "Units", t.units));
@@ -1931,6 +2022,7 @@ function viewCourses(){
   wrap.appendChild(el("section", { class: "card", "aria-label": "Manage course" }, [el("h2", { text: "Manage" }),
     el("div", { class: "row" }, [
       el("button", { class: "btn ghost", on: { click: function(){ exportCourse(key); } }, text: "Export course" }),
+      el("button", { class: "btn", on: { click: function(){ editDraftFrom(key); } }, text: "Edit course" }),
       el("button", { class: "btn ghost", on: { click: function(){ view.screen = "import"; view.reimportKey = key; render(); } }, text: "Re-import outline" }),
       el("button", { class: "btn danger", on: { click: function(){ confirmRemove(key); } }, text: "Remove course" }) ]) ]));
   return wrap;
@@ -1983,6 +2075,49 @@ function loadSample(){
   state.checks = {}; state.notes = {}; state.doneAt = {}; state.grades = {}; state.assume = {}; state.target = {}; state.custom = [];
   view.screen = null; view.course = null; view.clFilter = null;
   Store.save(); UI.toast("Sample data loaded. Ticks and marks start empty."); UI.setTab("today");
+}
+/* Add-course gate. It never blocks: "needs-term" only means the review shows an inline term form (no term in the app or the import). */
+var Gate = {};
+Gate.addCourse = function(draft){ return state.term || (draft && draft.term) ? "ok" : "needs-term"; };
+/* Sample courses are found by key AND a DEMO* code; no stored flag exists, so data saved by earlier versions is covered too. */
+function sampleKeysPresent(){
+  var known = Object.keys(SAMPLE_TEMPLATES).concat(Object.keys(SAMPLE_TEMPLATES_2));
+  return Object.keys(state.courses).filter(function(k){
+    var c = state.courses[k], code = c && c.template && c.template.code;
+    return known.indexOf(k) >= 0 && typeof code === "string" && code.indexOf("DEMO*") === 0;
+  });
+}
+function isSampleTerm(){
+  var t = state.term;
+  return !!t && t.name === SAMPLE_TERM.name && t.classesStart === SAMPLE_TERM.classesStart && t.classesEnd === SAMPLE_TERM.classesEnd;
+}
+/* Pure state change (no save, toast or render): removes the sample courses and their ticks, notes and marks. Own courses and the term stay. */
+function replaceSampleCore(){
+  var keys = sampleKeysPresent();
+  keys.forEach(purgeCourse);
+  return keys;
+}
+function replaceSampleData(){
+  var n = sampleKeysPresent().length;
+  if (!n) return;
+  if (!window.confirm("Remove the " + n + " sample courses and their ticks, marks and notes? Your own courses are kept.")) return;
+  replaceSampleCore();
+  view.course = null; view.clFilter = null; view.screen = "settings"; view.sampleBanner = true;
+  Store.save(); UI.toast("Sample courses removed"); render();
+}
+function replaceSampleCard(){
+  if (!sampleKeysPresent().length) return null;
+  return el("section", { class: "card", "aria-label": "Replace sample data" }, [
+    el("h2", { text: "Using the sample courses" }),
+    el("p", { class: "hint", text: "Ready to use your own? This removes the sample courses, keeps any courses you added, and takes you to your term dates." }),
+    el("button", { class: "btn", on: { click: replaceSampleData }, text: "Replace sample data with my own courses" }) ]);
+}
+/* Review-screen card shown when neither the app nor the import has a term: set it right here, then carry on with the same draft. */
+function reviewTermGate(draft){
+  return el("section", { class: "card warn", "aria-label": "Set your term" }, [
+    el("h2", { text: "Set your term first" }),
+    el("p", { class: "hint", text: "Your term dates place every item in the right week. Enter them here and your imported course stays as it is." }),
+    termForm(draft && draft.term ? normalizeTerm(draft.term) : null, function(t){ state.term = t; Store.save(); UI.toast("Term saved"); render(); }) ]);
 }
 /* Term form, shared by setup and settings. Validates start <= end, breaks inside range, Mon–Fri rescheduling. */
 function termForm(initial, onSave){
@@ -2064,10 +2199,17 @@ SCREENS.setup = function(){
 };
 function screenSetup(){ return SCREENS.setup(); }
 SCREENS.settings = function(){
+  var banner = view.sampleBanner && isSampleTerm();
   return el("div", null, [
     el("button", { class: "btn ghost", on: { click: function(){ view.screen = null; render(); } }, text: "‹ Back" }),
+    banner ? el("section", { class: "card warn", style: "margin-top:10px", "aria-label": "Next step" }, [
+      el("h2", { text: "Next: your own term and course" }),
+      el("p", { text: "These are the sample term dates. Change them to your own term, then add your first course." }) ]) : null,
     el("section", { class: "card", style: "margin-top:10px" }, [el("h2", { text: "Term settings" }),
-      termForm(state.term, function(t){ state.term = t; Store.save(); UI.toast("Term updated. All views recomputed."); view.screen = null; render(); })]),
+      termForm(state.term, function(t){
+        state.term = t; Store.save();
+        if (view.sampleBanner) { view.sampleBanner = false; UI.toast("Term saved. Now add your course."); view.screen = "add"; render(); return; }
+        UI.toast("Term updated. All views recomputed."); view.screen = null; render(); })]),
     el("section", { class: "card" }, [el("h2", { text: "Colour theme" }),
       el("p", { class: "hint", text: "Accent colour for buttons, focus and the active tab. Light or dark is set with the Dark button in the header. Course colours are set on each course." }),
       el("div", { class: "seg", role: "group", "aria-label": "Accent colour" }, ACCENTS.map(function(a){
@@ -2081,14 +2223,20 @@ SCREENS.settings = function(){
         el("label", { class: "btn ghost", style: "cursor:pointer" }, [ "Import backup", el("input", { type: "file", accept: ".json,application/json", class: "sr", "aria-label": "Import backup file", on: { change: backupImportFile } }) ]) ]) ]),
     el("section", { class: "card" }, [el("h2", { text: "Help" }),
       el("p", { class: "hint", text: "How adding courses with AI works, where your data lives, backups, and installing the app." }),
-      el("button", { class: "btn ghost", on: { click: function(){ view.screen = "help"; render(); } }, text: "Open help" }) ]),
+      el("div", { class: "row" }, [
+        el("button", { class: "btn ghost", on: { click: function(){ view.screen = "help"; render(); } }, text: "Open help" }),
+        el("button", { class: "btn ghost", on: { click: function(){ openTour(0); } }, text: "Take the tour" }) ]) ]),
     el("section", { class: "card" }, [el("h2", { text: "Sample data" }),
-      el("button", { class: "btn ghost", on: { click: loadSample }, text: "Load sample term and courses" }) ]) ]);
+      el("div", { class: "row" }, [
+        sampleKeysPresent().length ? el("button", { class: "btn", on: { click: replaceSampleData }, text: "Replace sample data with my own courses" }) : null,
+        el("button", { class: "btn ghost", on: { click: loadSample }, text: "Load sample term and courses" }) ]) ]) ]);
 };
 /* Help (improvement pass). Plain text only; the app's behaviour is described as it is built. */
 SCREENS.help = function(){
   return el("div", { class: "help" }, [
-    el("button", { class: "btn ghost", on: { click: function(){ view.screen = "settings"; render(); } }, text: "‹ Back to settings" }),
+    el("div", { class: "row" }, [
+      el("button", { class: "btn ghost", on: { click: function(){ view.screen = "settings"; render(); } }, text: "‹ Back to settings" }),
+      el("button", { class: "btn", on: { click: function(){ openTour(0); } }, text: "Take the tour" }) ]),
     el("section", { class: "card", style: "margin-top:10px" }, [el("h2", { text: "Adding a course with AI" }),
       el("ol", null, [
         el("li", { text: "Go to Courses and tap + Add course (or Add course on the empty Today screen)." }),
@@ -2104,7 +2252,8 @@ SCREENS.help = function(){
       el("ul", null, [
         el("li", { text: "Whole app: Settings, then Export backup saves one .json file. Import backup in Settings replaces everything on this device. The data it replaces is kept as a copy in this browser." }),
         el("li", { text: "One course: Courses, then Export course saves that course as .json. Classmates can import it under Add course, with no AI needed." }),
-        el("li", { text: "Updated outline: Courses, then Re-import outline. Ticks, notes and marks stay with items that are still in the outline." }) ]) ]),
+        el("li", { text: "Updated outline: Courses, then Re-import outline. Ticks, notes and marks stay with items that are still in the outline." }),
+        el("li", { text: "Wrong date or weight: Courses, then Edit course. Ticks, notes and marks stay with items you keep; you're warned before deleting a ticked item." }) ]) ]),
     el("section", { class: "card" }, [el("h2", { text: "Install the app" }),
       el("ul", null, [
         el("li", { text: "Add to Home Screen now (works from the hosted link): iPhone Safari, Share, then Add to Home Screen. Android Chrome, the menu, then Add to Home screen or Install app." }),
@@ -2134,16 +2283,21 @@ SCREENS.add = function(){
         el("button", { class: "btn ghost", on: { click: function(){ copyText(fixPrompt(e.msg), "Fix prompt copied. Paste it into your AI chat."); } }, text: "Copy fix prompt" }) ]));
       return;
     }
-    view.draft = r.draft; view.screen = "review"; view.reimportKey = key; render();
+    view.draft = r.draft; view.screen = "review"; view.reimportKey = key; view.editMode = false; render();
   };
   return el("div", null, [
     el("button", { class: "btn ghost", on: { click: function(){ view.screen = null; view.reimportKey = null; render(); } }, text: "‹ Back" }),
+    isSampleTerm() ? el("section", { class: "card warn", style: "margin-top:10px", "aria-label": "Sample term notice" }, [
+      el("p", { text: "Your term is still the sample term (" + state.term.name + ", " + Dt.short(state.term.classesStart) + " to " + Dt.short(state.term.classesEnd) + "). The prompt below is filled from it." }),
+      el("p", { class: "hint", text: "If your own term is different, set it first so the AI uses your dates." }),
+      el("button", { class: "btn ghost", on: { click: function(){ view.screen = "settings"; render(); } }, text: "Set my term in Settings" }) ]) : null,
     el("section", { class: "card", style: "margin-top:10px" }, [
       el("h2", { text: key ? "Re-import " + UI.courseCode(key) : "Add course" }),
       el("ol", null, [
         el("li", { text: "Copy the prompt below and paste it into your AI. Attach the outline (PDF) or paste its text." }),
         el("li", { text: "Copy the JSON reply from the AI." }),
         el("li", { text: "Come back here and paste it below, or choose the saved file." }) ]),
+      el("p", { class: "hint", text: "If your course has lab, tutorial or lecture sections, you'll be asked which one is yours when you paste the reply back." }),
       el("button", { class: "btn", on: { click: function(){ out.value = fillPrompt(); copyText(out.value, "Prompt copied. Paste it into your AI."); } }, text: "Copy prompt" }),
       el("label", { class: "f" }, [el("span", { text: "Prompt (filled from your term)" }), out]),
       el("ul", { class: "hint" }, [
@@ -2166,9 +2320,9 @@ SCREENS.review = function(){
   var key = Parse.courseKey(draft.course.code), existing = state.courses[key];
   var meta = view.meta && view.meta.key === key ? view.meta : null;
   if (!meta) {
-    meta = view.meta = { key: key, accepted: existing ? (existing.accepted || []).slice() : [], section: existing ? JSON.parse(JSON.stringify(existing.section || {})) : {},
-      unk: draft.unknowns.map(function(){ return "open"; }), removeRefs: {} };
+    meta = view.meta = newReviewMeta(draft, key, existing, !!view.editMode);
   }
+  var editing = !!view.editMode && !!existing;
   var others = [];
   Object.keys(state.courses).forEach(function(k){
     if (k === key) return;
@@ -2187,14 +2341,20 @@ SCREENS.review = function(){
   // 1. summary bar
   var reason = errors ? "Fix " + errors + " error" + (errors > 1 ? "s" : "") + " to save." : "";
   wrap.appendChild(el("section", { class: "card", "aria-label": "Summary" }, [
-    el("h2", { text: draft.course.code + " · " + (draft.course.name || "") }),
+    el("h2", { text: (editing ? "Edit " : "") + draft.course.code + " · " + (draft.course.name || "") }),
     el("p", { text: draft.items.length + " items · " + errors + " errors · " + warns + " warnings · " + unkOpen + " unknowns" }),
-    existing ? el("p", { class: "hint", text: "Re-importing: ticks, notes and marks are kept. Template version " + (existing.templateVersion || 1) + " → " + ((existing.templateVersion || 1) + 1) + "." }) : null,
+    editing ? el("p", { class: "hint", text: "Editing your saved course. Ticks, marks and notes stay with items you keep." })
+      : existing ? el("p", { class: "hint", text: "Re-importing: ticks, notes and marks are kept. Template version " + (existing.templateVersion || 1) + " → " + ((existing.templateVersion || 1) + 1) + "." }) : null,
     el("div", { class: "row" }, [
-      el("button", { class: "btn", disabled: !!errors, "aria-disabled": errors ? "true" : "false", on: { click: function(){ saveReview(draft, key, existing); } }, text: "Save course" }),
-      el("button", { class: "btn ghost", on: { click: function(){ if (window.confirm("Discard this import?")) { view.draft = null; view.meta = null; view.screen = null; state.reviewDraft = null; Store.save(); render(); } } }, text: "Cancel" }) ]),
-    errors ? el("p", { class: "hint err", text: reason }) : null,
-    !state.term && !draft.term ? el("p", { class: "hint err", text: "No term is set. Set one in Settings first." }) : null ]));
+      el("button", { class: "btn", disabled: !!errors, "aria-disabled": errors ? "true" : "false", on: { click: function(){ saveReview(draft, key, existing); } }, text: editing ? "Save changes" : "Save course" }),
+      el("button", { class: "btn ghost", on: { click: function(){
+        if (window.confirm(editing ? "Discard your edits? The saved course is not changed." : "Discard this import?")) {
+          view.draft = null; view.meta = null; view.screen = null; view.reimportKey = null; view.editMode = false; state.reviewDraft = null; Store.save(); render(); } } }, text: "Cancel" }) ]),
+    errors ? el("p", { class: "hint err", text: reason }) : null ]));
+  // Guided term step (never a dead end): shown only when neither the app nor the import has a term.
+  if (Gate.addCourse(draft) === "needs-term") wrap.appendChild(reviewTermGate(draft));
+  // 1b. section picker, up here so it is asked before Save rather than found late (skippable)
+  var secCard = reviewSectionCard(draft, meta); if (secCard) wrap.appendChild(secCard);
   // 2. re-import diff
   if (existing) wrap.appendChild(diffCard(existing, draft, meta));
   // 3. problems
@@ -2215,27 +2375,41 @@ SCREENS.review = function(){
   wrap.appendChild(gradeEditor(draft));
   // 6. pass rules
   wrap.appendChild(passEditor(draft));
-  // 7. section picker
-  if (draft.course.sections.length) {
-    var secs = draft.course.sections;
-    wrap.appendChild(el("section", { class: "card", "aria-label": "Section picker" }, [el("h2", { text: "Section choices" }),
-      ["lab","tutorial"].filter(function(t){ return secs.some(function(s){ return s.type === t; }); }).map(function(t){
-        return el("label", { class: "f" }, [el("span", { text: "Your " + t + " section" }),
-          el("select", { on: { change: function(ev){ meta.section[t] = ev.target.value || null; render(); } } },
-            [el("option", { value: "", text: "Pick one" })].concat(secs.filter(function(s){ return s.type === t; }).map(function(s){
-              return el("option", { value: s.id, selected: meta.section[t] === s.id, text: s.id + " · " + s.day + " " + Dt.timeLabel(s.start) }); })))]); }) ]));
-  }
   // 8. items by week (editable, with add and delete)
   wrap.appendChild(itemsCard(draft, term, meta));
   // 9. classes, contacts, rules, textbooks, units (editable)
   wrap.appendChild(courseEditor(draft, meta));
   return wrap;
 };
+/* Section picker for the review: one select per section type the course has (lab, tutorial, per-section lectures). The pick is written to
+   meta.section, which saveReview stores as course.section, the same field the Courses screen picker edits. Skippable via "I'll pick later". */
+function reviewSectionCard(draft, meta){
+  var c = draft.course, types = Sections.types(c);
+  if (!types.length) return null;
+  meta.section = meta.section || {};
+  var needed = draft.items.some(function(it){ return it && it.relative; }) || (c.classes || []).some(Sections.tagged);
+  var picked = types.filter(function(t){ return meta.section[t]; }).length;
+  if (meta.sectionLater && picked < types.length) {
+    return el("section", { class: "card", "aria-label": "Section picker" }, [
+      el("p", { class: "hint", text: "Sections: you chose to pick later. You can pick on the Courses screen." + (needed ? " Relative deadlines and class times stay unresolved until you do." : "") }),
+      el("button", { class: "btn ghost", on: { click: function(){ meta.sectionLater = false; render(); } }, text: "Pick now" }) ]);
+  }
+  return el("section", { class: "card", "aria-label": "Section picker" }, [
+    el("h2", { text: "Which section are you in?" }),
+    needed ? el("p", { class: "hint err", text: "Recommended: relative deadlines and your class times depend on this." })
+      : el("p", { class: "hint", text: "Pick your section so the calendar shows only your sessions." }),
+    types.map(function(t){
+      return el("label", { class: "f" }, [el("span", { text: "Your " + t + " section" }),
+        el("select", { "aria-label": "Your " + t + " section", on: { change: function(ev){ meta.section[t] = ev.target.value || null; render(); } } },
+          [el("option", { value: "", text: "Pick one" })].concat(Sections.options(c, t).map(function(o){
+            return el("option", { value: o.id, selected: meta.section[t] === o.id, text: Sections.label(o) }); })))]); }),
+    el("button", { class: "btn ghost", on: { click: function(){ meta.sectionLater = true; render(); } }, text: "I'll pick later" }) ]);
+}
 /* Keeps the review in the browser until it is saved or discarded (PLAN R4). Called on every render. */
 function persistReview(){
   if (!view.draft || !view.meta) return;
-  state.reviewDraft = { key: view.meta.key, reimportKey: view.reimportKey || null, draft: view.draft,
-    meta: { accepted: view.meta.accepted, section: view.meta.section, unk: view.meta.unk, removeRefs: view.meta.removeRefs, detailsOpen: view.meta.detailsOpen },
+  state.reviewDraft = { key: view.meta.key, reimportKey: view.reimportKey || null, editMode: !!view.editMode, draft: view.draft,
+    meta: { accepted: view.meta.accepted, section: view.meta.section, unk: view.meta.unk, removeRefs: view.meta.removeRefs, detailsOpen: view.meta.detailsOpen, sectionLater: !!view.meta.sectionLater },
     savedAt: Date.now() };
   Store.save();
 }
@@ -2252,7 +2426,7 @@ function askResume(){
 }
 function resumeReview(){
   var rd = state.reviewDraft; if (!rd || !rd.draft) return;
-  view.draft = rd.draft; view.reimportKey = rd.reimportKey || null;
+  view.draft = rd.draft; view.reimportKey = rd.reimportKey || null; view.editMode = !!rd.editMode;
   view.meta = Object.assign({}, rd.meta, { key: rd.key });
   view.screen = "review"; UI.closeSheet(); render();
 }
@@ -2266,7 +2440,9 @@ function addDraftItem(draft){
 }
 function deleteDraftItem(draft, meta, idx){
   var it = draft.items[idx]; if (!it) return;
-  if (!window.confirm("Delete \"" + (it.title || it.ref) + "\" from this review?")) return;
+  var existing = state.courses[meta.key], old = existing && existing.items.filter(function(x){ return x.ref === it.ref; })[0];
+  var risk = old ? deletionRisks(meta.key, existing, [], (function(){ var o = {}; o[it.ref] = true; return o; })())[0] : null;
+  if (!window.confirm("Delete \"" + (it.title || it.ref) + "\" from this review?" + (risk ? "\nThis item " + riskText(risk) + ". Ticks and notes on it are removed when you save." : ""))) return;
   meta.removeRefs[it.ref] = true;
   draft.items.splice(idx, 1); render();
 }
@@ -2291,10 +2467,12 @@ function courseEditor(draft, meta){
         on: { change: function(ev){ cls.location = ev.target.value.trim() || null; render(); } } });
       var opt = el("label", { class: "row" }, [el("input", { type: "checkbox", checked: !!cls.optional, "aria-label": "Class " + (i + 1) + " is optional",
         on: { change: function(ev){ cls.optional = ev.target.checked; render(); } } }), el("span", { text: "Optional" })]);
+      var secIn = el("input", { type: "text", value: cls.section || "", placeholder: "Section (blank = everyone)", "aria-label": "Class " + (i + 1) + " section", style: "width:170px",
+        on: { change: function(ev){ cls.section = ev.target.value.trim() || null; render(); } } });
       return el("div", { class: "item", style: "display:block" }, [
         el("div", { class: "row" }, [type, start, end, opt]),
         el("div", { class: "row", role: "group", "aria-label": "Class " + (i + 1) + " days" }, days),
-        el("div", { class: "row" }, [loc, el("button", { class: "btn ghost", "aria-label": "Delete class " + (i + 1), on: { click: function(){ c.classes.splice(i, 1); render(); } }, text: "Delete" })]) ]);
+        el("div", { class: "row" }, [loc, secIn, el("button", { class: "btn ghost", "aria-label": "Delete class " + (i + 1), on: { click: function(){ c.classes.splice(i, 1); render(); } }, text: "Delete" })]) ]);
     }),
     el("button", { class: "btn ghost", on: { click: function(){ c.classes.push({ type: "lecture", days: [], start: null, end: null, location: null, section: null, optional: false }); render(); } }, text: "+ Add class" }),
     el("h3", { style: "font-size:1rem", text: "Contacts" }),
@@ -2464,10 +2642,41 @@ function nextColor(){
   for (var i = 0; i < PALETTE_SIZE; i++) if (used.indexOf(i) < 0) return i;
   return used.length % PALETTE_SIZE;
 }
+/* Ticks, notes and marks that a save would orphan: refs marked for removal (and absent from the draft) that carry a tick, a note or a mark.
+   Marks live in component slots, not on items, so they are not deleted; they are listed so the confirm can say they stay in Grades. */
+function deletionRisks(key, existing, items, removeRefs){
+  var out = [];
+  if (!existing) return out;
+  var kept = {};
+  (items || []).forEach(function(n){ if (n && n.ref) kept[n.ref] = true; });
+  var marks = state.grades[key] || {};
+  existing.items.forEach(function(old){
+    if (!removeRefs || !removeRefs[old.ref] || kept[old.ref]) return;
+    var id = key + ":" + old.ref, slot = old.comp && marks[old.comp] ? marks[old.comp][old.index] : null;
+    var r = { ref: old.ref, title: old.title, tick: !!state.checks[id], note: !!state.notes[id], mark: slot !== null && slot !== undefined && String(slot).trim() !== "" };
+    if (r.tick || r.note || r.mark) out.push(r);
+  });
+  return out;
+}
+function riskText(r){
+  return [r.tick ? "is ticked" : null, r.note ? "has a note" : null, r.mark ? "has a mark (the mark stays in Grades)" : null].filter(Boolean).join(", ");
+}
 function saveReview(draft, key, existing){
   var probs = Validate.run(draft, { term: state.term || draft.term, others: [] });
   if (probs.some(function(p){ return p.level === "error"; })) { UI.toast("Fix the errors first."); return; }
-  var meta = view.meta;
+  var risks = deletionRisks(key, existing, draft.items, view.meta && view.meta.removeRefs);
+  if (risks.length && !window.confirm("Saving will delete:\n" + risks.map(function(r){ return "• " + r.title + " " + riskText(r); }).join("\n") + "\nTicks and notes on these items are removed. Continue?")) return;
+  var editing = !!view.editMode;
+  applyCourseSave(draft, key, existing, view.meta);
+  state.reviewDraft = null;
+  Store.save();
+  view.draft = null; view.meta = null; view.screen = null; view.reimportKey = null; view.editMode = false; view.course = key;
+  UI.toast(editing ? "Course updated" : COURSE_CHECK_PROMPT);
+  UI.setTab("courses");
+}
+/* Pure state change shared by import, re-import and edit: no save, toast or render. Items are matched by ref, so ticks, notes, doneAt,
+   marks and custom tasks stay with items that still exist. Returns the refs that were removed. */
+function applyCourseSave(draft, key, existing, meta){
   var items = draft.items.filter(function(it){ return it && typeof it === "object"; }).map(function(it){
     return { ref: it.ref, title: it.title, tier: it.tier, date: Dt.ok(it.date) ? it.date : null, time: it.time || null,
       dateLabel: it.dateLabel || null, window: it.window || null, relative: it.relative || null, weight: typeof it.weight === "number" ? it.weight : null,
@@ -2481,12 +2690,13 @@ function saveReview(draft, key, existing){
     });
   }
   // Items deleted in review lose their ticks, notes and done dates (run.log, improvement pass 4a). Refs still in the course keep them.
-  var kept = {};
+  var kept = {}, removed = [];
   items.forEach(function(n){ kept[n.ref] = true; });
   Object.keys(meta.removeRefs || {}).forEach(function(ref){
     if (kept[ref]) return;
     var id = key + ":" + ref;
     delete state.checks[id]; delete state.notes[id]; delete state.doneAt[id];
+    removed.push(ref);
   });
   if (!state.term && draft.term) state.term = normalizeTerm(draft.term);
   state.courses[key] = {
@@ -2496,11 +2706,23 @@ function saveReview(draft, key, existing){
     unknowns: draft.unknowns.map(function(u, i){ return { text: u, status: meta.unk[i] === "blank" ? "blank" : "open" }; }),
     warnings: draft.warnings.slice(), accepted: meta.accepted.slice()
   };
-  state.reviewDraft = null;
-  Store.save();
-  view.draft = null; view.meta = null; view.screen = null; view.reimportKey = null; view.course = key;
-  UI.toast(COURSE_CHECK_PROMPT);
-  UI.setTab("courses");
+  return { removed: removed };
+}
+/* Opens the review editor on a saved course. The draft is a deep copy, so Cancel leaves the saved course untouched. */
+function editDraftFor(key){
+  var c = state.courses[key]; if (!c) return null;
+  var copy = JSON.parse(JSON.stringify({ course: c.template, items: c.items, unknowns: c.unknowns.map(function(u){ return u.text; }), warnings: c.warnings || [] }));
+  return Parse.normalize({ term: null, course: copy.course, items: copy.items, unknowns: copy.unknowns, warnings: copy.warnings });
+}
+function editDraftFrom(key){
+  var d = editDraftFor(key); if (!d) return;
+  view.draft = d; view.reimportKey = key; view.editMode = true; view.meta = null; view.screen = "review";
+  render();
+}
+/* Starting review state for a draft. On re-import and edit it is seeded from the saved course: accepted warnings, the section pick, and (editing only) left-blank unknowns. */
+function newReviewMeta(draft, key, existing, editing){
+  return { key: key, accepted: existing ? (existing.accepted || []).slice() : [], section: existing ? JSON.parse(JSON.stringify(existing.section || {})) : {},
+    unk: draft.unknowns.map(function(u, i){ return editing && existing && existing.unknowns[i] && existing.unknowns[i].status === "blank" ? "blank" : "open"; }), removeRefs: {} };
 }
 
 /* ===== JS 14: export, remove, backup, self-test, boot ===== */
@@ -2520,7 +2742,8 @@ function confirmRemove(key){
       el("button", { class: "btn ghost", on: { click: UI.closeSheet }, text: "Cancel" }) ]) ]);
   UI.openSheet("Remove course?", body);
 }
-function removeCourse(key){
+/* State change for removing one course: ticks, notes, done dates, marks, assumption and target go; custom tasks move to All / personal. No save or render. */
+function purgeCourse(key){
   var pre = key + ":";
   Object.keys(state.checks).forEach(function(k){ if (k.indexOf(pre) === 0) delete state.checks[k]; });
   Object.keys(state.notes).forEach(function(k){ if (k.indexOf(pre) === 0) delete state.notes[k]; });
@@ -2528,6 +2751,9 @@ function removeCourse(key){
   delete state.grades[key]; delete state.assume[key]; delete state.target[key];
   (state.custom || []).forEach(function(c){ if (c.c === key) c.c = "ALL"; });
   delete state.courses[key];
+}
+function removeCourse(key){
+  purgeCourse(key);
   UI.closeSheet(); Store.save();
   view.course = null; view.clFilter = null;
   UI.toast("Course removed"); render();
@@ -2701,6 +2927,195 @@ function runSelfTests(){
   t("prompt: no {{ left after filling", function(){ return eq(pr.indexOf("{{"), -1); });
   t("prompt: term values filled", function(){
     return eq(pr.indexOf("TERM: Fall 2026. Classes run 2026-09-10 to 2026-12-04. Study break: 2026-10-10 to 2026-10-13. Year for all dates: 2026.") >= 0, true); });
+  /* ---- v2 fix-pass tests. Sandboxed on the sample state; they never call Store.save or render. ---- */
+  var sig = function(n){ return n.tagName + "." + n.className + ">" + [].map.call(n.children, function(c){ return c.tagName + "." + c.className; }).join(","); };
+  t("week bubbles: identical structure; current differs only by aria-current", function(){
+    var mk = function(g, cur){ return weekBubble(g, [{ done: true }, { done: false }], cur); };
+    var a = mk({ id: "w3", kind: "week", n: 3, label: "Week 3" }, false), b = mk({ id: "w4", kind: "week", n: 4, label: "Week 4" }, true), c = mk({ id: "nodate", label: "No date" }, false);
+    var same = sig(a) === sig(b) && sig(b) === sig(c);
+    var noStyle = !a.hasAttribute("style") && !b.hasAttribute("style") && !c.hasAttribute("style");
+    var cur = b.getAttribute("aria-current") === "true" && !a.hasAttribute("aria-current") && !c.hasAttribute("aria-current");
+    var barFirst = b.children[0].className === "wk-n" && b.children[1].className.indexOf("wk-bar") >= 0;
+    return { ok: same && noStyle && cur && barFirst, detail: sig(a) + " | " + sig(b) + " | style " + noStyle + " cur " + cur }; });
+  var LONGLBL = "Exam period (from Dec 7) — date and location TBA";
+  var longEntry = function(){ return { id: "x:y", courseKey: "DEMO3530", title: "Final exam", tier: "graded", date: null, time: null, weight: 40, done: false,
+    dateLabel: LONGLBL, relativeReason: null, item: { dateLabel: LONGLBL } }; };
+  t("itemRow: long label → .long, no .when, label in .when-line", function(){
+    var r = UI.itemRow(longEntry()), wl = r.querySelector(".when-line");
+    return { ok: r.classList.contains("long") && !r.querySelector(".when") && !!wl && wl.textContent.indexOf(LONGLBL) >= 0 && !!wl.querySelector(".wt"),
+      detail: r.className + " when:" + !!r.querySelector(".when") + " line:" + !!wl }; });
+  t("itemRow: dated row keeps .when", function(){
+    var e = longEntry(); e.date = "2026-10-02"; e.dateLabel = "Fri Oct 2"; e.item = { dateLabel: "Fri Oct 2" };
+    var r = UI.itemRow(e);
+    return { ok: !r.classList.contains("long") && !!r.querySelector(".when") && !r.querySelector(".when-line"), detail: r.className }; });
+  t("itemRow: label not printed twice", function(){
+    var n = UI.itemRow(longEntry()).textContent.split(LONGLBL).length - 1; return eq(n, 1); });
+  t("itemRow: every undated sample row uses the long layout, longest label included", function(){
+    var all = Model.build().filter(function(e){ return !e.date; }), longest = all.slice().sort(function(a, b){ return UI.whenText(b).length - UI.whenText(a).length; })[0];
+    var bad = all.filter(function(e){ var r = UI.itemRow(e); return !r.classList.contains("long") || r.querySelector(".when"); });
+    return { ok: all.length > 0 && bad.length === 0, detail: all.length + " undated, longest \"" + (longest && UI.whenText(longest)) + "\", bad " + bad.length }; });
+  t("nav: five tab buttons + one settings action; tab selector ignores settings", function(){
+    var tabs = document.querySelectorAll("nav.tabs button[data-tab]").length, st = document.querySelectorAll("nav.tabs button[data-action='settings']").length;
+    return { ok: tabs === 5 && st === 1 && document.querySelectorAll("nav.tabs button").length === 6, detail: tabs + " tabs, " + st + " settings" }; });
+  t("nav: sidebar breakpoint at 1024px, bottom bar below it", function(){
+    var css = document.querySelector("style").textContent;
+    return { ok: css.indexOf("@media (min-width:1024px)") >= 0 && /nav\.tabs\{position:fixed;left:0;right:0;bottom:0/.test(css) && css.indexOf("position:sticky") < 0, detail: "css checks" }; });
+  var hasBtn = function(node, label){ return [].some.call(node.querySelectorAll("button"), function(b){ return b.textContent.trim() === label; }); };
+  t("sample → gate is ok", function(){ return eq(Gate.addCourse({ term: null }), "ok"); });
+  t("sample → Settings offers Replace sample data", function(){
+    return { ok: hasBtn(SCREENS.settings(), "Replace sample data with my own courses"), detail: "button missing" }; });
+  t("sample → Add course screen has Copy prompt, no term warning", function(){
+    var n = SCREENS.add();
+    return { ok: hasBtn(n, "Copy prompt") && n.textContent.indexOf("No term is set") < 0, detail: "copy " + hasBtn(n, "Copy prompt") }; });
+  t("sample → Add course warns that the term is still the sample term", function(){
+    var n = SCREENS.add(); return { ok: isSampleTerm() && hasBtn(n, "Set my term in Settings"), detail: "sample term " + isSampleTerm() }; });
+  t("no term + draft without term → inline term form, not a dead end", function(){
+    var term = state.term; state.term = null;
+    try {
+      var d = { term: null }, gate = Gate.addCourse(d), node = reviewTermGate(d);
+      return { ok: gate === "needs-term" && hasBtn(node, "Save term"), detail: "gate " + gate }; }
+    finally { state.term = term; } });
+  t("gate never applies when the import carries a term", function(){
+    var term = state.term; state.term = null;
+    try { return eq(Gate.addCourse({ term: SAMPLE_TERM }), "ok"); } finally { state.term = term; } });
+  t("replace sample keeps own course and term", function(){
+    var ownKey = "OWN1000", termBefore = JSON.stringify(state.term), courses = state.courses, checks = state.checks;
+    state.courses = Object.assign({}, loadSampleCourses());
+    state.courses[ownKey] = { template: { code: "OWN*1000", name: "Own", components: [], classes: [], sections: [], contacts: [], rules: [], textbooks: [], units: [] },
+      items: [{ ref: "a1", title: "A1", tier: "must", date: null }], section: {}, color: 6, unknowns: [], warnings: [], accepted: [] };
+    state.checks = { "OWN1000:a1": true, "DEMO3530:w3-11": true }; state.custom = [{ id: "c1", t: "mine", c: "DEMO3530", d: null }];
+    try {
+      var removed = replaceSampleCore();
+      var left = Object.keys(state.courses).join(","), demoLeft = Object.keys(state.checks).some(function(k){ return k.indexOf("DEMO") === 0; });
+      return { ok: removed.length === 6 && left === ownKey && JSON.stringify(state.term) === termBefore && !demoLeft && state.checks["OWN1000:a1"] === true && state.custom[0].c === "ALL",
+        detail: "removed " + removed.length + ", left " + left + ", demoChecks " + demoLeft }; }
+    finally { state.courses = courses; state.checks = checks; state.custom = []; } });
+  t("replace sample: a course with a DEMO key but a non-DEMO code is not treated as sample", function(){
+    var c = state.courses, k = "DEMO1010";
+    state.courses = { DEMO1010: { template: { code: "MINE*1010" }, items: [] } };
+    try { return eq(sampleKeysPresent().length, 0); } finally { state.courses = c; } });
+  // sections (item 5): the sample has no section-tagged classes, so these use a synthetic course SEC1000 (Wed labs 104/105/106)
+  var SAMPLE_CLASS_SESSIONS = 60;   // class sessions across the sample term, measured at baseline dd2fd78 (3 lectures, no section tags)
+  var WED = "2026-09-16";
+  var secTpl = function(extraClasses, extraSections){
+    var cl = function(type, start, end, sec){ return { type: type, days: ["Wed"], start: start, end: end, location: "Room " + (sec || "A"), section: sec || null, optional: false }; };
+    return { code: "SEC*1000", name: "Sectioned", components: [], contacts: [], rules: [], textbooks: [], units: [], passRules: [],
+      classes: [cl("lecture", "10:00", "11:20"), cl("lab", "14:30", "16:20", "104"), cl("lab", "15:30", "17:20", "105"), cl("lab", "16:30", "18:20", "106")].concat(extraClasses || []),
+      sections: [{ type: "lab", id: "104", day: "Wed", start: "14:30", location: "Lab 1" }, { type: "lab", id: "105", day: "Wed", start: "15:30", location: "Lab 1" },
+        { type: "lab", id: "106", day: "Wed", start: "16:30", location: "Lab 1" }].concat(extraSections || []) };
+  };
+  var withSec = function(pick, extraClasses, extraSections, fn){
+    var c = state.courses;
+    state.courses = { SEC1000: { template: secTpl(extraClasses, extraSections), items: [], section: pick, color: 0, unknowns: [], warnings: [], accepted: [] } };
+    try { return fn(Term.classesOn(T, WED)); } finally { state.courses = c; } };
+  var times = function(r){ return r.map(function(x){ return x.cls.start + (x.pending ? "?" : ""); }).join(","); };
+  t("classesOn: picked 104 → lecture + one lab (14:30)", function(){ return eq(withSec({ lab: "104" }, null, null, times), "10:00,14:30"); });
+  t("classesOn: no pick → lecture + 3 labs, all labs pending:true", function(){ return eq(withSec({}, null, null, times), "10:00,14:30?,15:30?,16:30?"); });
+  t("classesOn: stale pick \"999\" → treated as no pick", function(){ return eq(withSec({ lab: "999" }, null, null, times), "10:00,14:30?,15:30?,16:30?"); });
+  t("classesOn: lab pick does not hide a tutorial session", function(){
+    var tut = [{ type: "tutorial", days: ["Wed"], start: "09:00", end: "09:50", location: "T", section: "T1", optional: false }, { type: "tutorial", days: ["Wed"], start: "13:00", end: "13:50", location: "T", section: "T2", optional: false }];
+    var secs = [{ type: "tutorial", id: "T1", day: "Wed", start: "09:00", location: "T" }, { type: "tutorial", id: "T2", day: "Wed", start: "13:00", location: "T" }];
+    return eq(withSec({ lab: "105" }, tut, secs, times), "10:00,15:30,09:00?,13:00?"); });
+  t("classesOn: lecture with section null always shows, pending entries carry the type", function(){
+    return withSec({}, null, null, function(r){ return { ok: r[0].cls.section === null && !r[0].pending && r[1].sectionType === "lab", detail: times(r) }; }); });
+  t("classesOn: sample data unchanged (no section-tagged classes, nothing pending)", function(){
+    var n = 0, raw = 0, pend = 0;
+    for (var d = T.cs; d <= T.ce; d = Dt.add(d, 1)) {
+      var got = Term.classesOn(T, d); n += got.length; pend += got.filter(function(x){ return x.pending; }).length;
+      if (!T.inBreak(d)) Object.keys(state.courses).forEach(function(k){ state.courses[k].template.classes.forEach(function(c){ if (c.days.indexOf(Term.dayEffective(T, d)) >= 0) raw++; }); });
+    }
+    return { ok: n === raw && pend === 0 && n === SAMPLE_CLASS_SESSIONS, detail: "classesOn " + n + ", raw " + raw + ", pending " + pend + ", baseline " + SAMPLE_CLASS_SESSIONS }; });
+  t("review: section card present when draft has sections; absent when none", function(){
+    var withS = reviewSectionCard({ course: secTpl(), items: [] }, { section: {} });
+    var none = reviewSectionCard({ course: { classes: [{ type: "lecture", days: ["Mon"], section: null }], sections: [] }, items: [] }, { section: {} });
+    return { ok: !!withS && none === null && withS.querySelectorAll("select").length === 1 && hasBtn(withS, "I'll pick later"), detail: "selects " + (withS && withS.querySelectorAll("select").length) }; });
+  t("review: per-section lecture type offered (from class section tags, no sections rows)", function(){
+    var course = { sections: [], classes: [{ type: "lecture", days: ["Mon"], start: "09:00", section: "01", location: "A" }, { type: "lecture", days: ["Tue"], start: "11:00", section: "02", location: "B" }] };
+    var card = reviewSectionCard({ course: course, items: [] }, { section: {} });
+    return { ok: !!card && Sections.types(course).join() === "lecture" && Sections.options(course, "lecture").length === 2 && card.querySelectorAll("select option").length === 3,
+      detail: "types " + Sections.types(course).join() }; });
+  t("review: recommendation shown when relative deadlines or section classes exist", function(){
+    var card = reviewSectionCard({ course: secTpl(), items: [{ relative: { sectionType: "lab", week: 3, offsetHours: 24 } }] }, { section: {} });
+    return { ok: card.textContent.indexOf("Recommended: relative deadlines and your class times depend on this.") >= 0, detail: card.textContent.slice(0, 80) }; });
+  t("review: pick pre-filled from meta and \"I'll pick later\" collapses the card", function(){
+    var meta = { section: { lab: "105" } }, card = reviewSectionCard({ course: secTpl(), items: [] }, meta);
+    var sel = card.querySelector("select"), pre = sel.value === "105";
+    meta.section = {}; meta.sectionLater = true;
+    var later = reviewSectionCard({ course: secTpl(), items: [] }, meta);
+    return { ok: pre && later.querySelectorAll("select").length === 0 && hasBtn(later, "Pick now"), detail: "prefilled " + pre }; });
+  t("section picker: Courses picker offers the same options as the review", function(){
+    var c = state.courses;
+    state.courses = { SEC1000: { template: secTpl(), items: [], section: { lab: "104" }, color: 0, unknowns: [], warnings: [], accepted: [] } };
+    try { var p = sectionPicker("SEC1000"); return { ok: p.querySelectorAll("option").length === 4 && p.querySelector("option[selected]").value === "104", detail: "options " + p.querySelectorAll("option").length }; }
+    finally { state.courses = c; } });
+  t("prompt: contains the EVERY section instruction", function(){
+    return { ok: pr.indexOf("15. Sections: list EVERY section of every type") >= 0 && pr.indexOf("put that section's id in \"section\"") >= 0, detail: "rule 15 missing" }; });
+  t("add course: tells the human they will be asked for their section", function(){
+    return { ok: SCREENS.add().textContent.indexOf("you'll be asked which one is yours") >= 0, detail: "line missing" }; });
+  // edit preservation (item 6): a dated graded DEMO*3530 item with a mark slot, edited through the same draft/save core the review uses
+  var editFx = function(){
+    var key = "DEMO3530", c = state.courses[key];
+    var it = c.items.filter(function(i){ return i.tier === "graded" && i.date && i.comp; })[0], id = key + ":" + it.ref;
+    c.section = { lab: "103" };
+    state.checks[id] = true; state.notes[id] = "my note"; state.doneAt[id] = 1234;
+    state.grades[key] = {}; state.grades[key][it.comp] = []; state.grades[key][it.comp][it.index] = "80";
+    state.custom = [{ id: "c1", t: "mine", c: key, d: null }];
+    var before = JSON.parse(JSON.stringify(c.items));
+    var draft = editDraftFor(key), existing = c, meta = newReviewMeta(draft, key, existing, true);
+    return { key: key, it: it, id: id, before: before, draft: draft, existing: existing, meta: meta };
+  };
+  var newDate = function(old){ return Dt.add(old, 2); };
+  t("edit: tick, note, doneAt and mark survive a date edit; date changed", function(){
+    var f = editFx(), d = f.draft.items.filter(function(i){ return i.ref === f.it.ref; })[0], nd = newDate(f.it.date);
+    d.date = nd; applyCourseSave(f.draft, f.key, f.existing, f.meta);
+    var now = state.courses[f.key].items.filter(function(i){ return i.ref === f.it.ref; })[0];
+    return { ok: now.date === nd && now.date !== f.it.date && state.checks[f.id] === true && state.notes[f.id] === "my note" && state.doneAt[f.id] === 1234 && state.grades[f.key][f.it.comp][f.it.index] === "80",
+      detail: "date " + now.date + " tick " + state.checks[f.id] }; });
+  t("edit: unchanged items keep identical fields", function(){
+    var f = editFx(); f.draft.items.filter(function(i){ return i.ref === f.it.ref; })[0].date = newDate(f.it.date);
+    applyCourseSave(f.draft, f.key, f.existing, f.meta);
+    var after = state.courses[f.key].items, bad = [];
+    f.before.forEach(function(b, i){ if (b.ref !== f.it.ref && JSON.stringify(b) !== JSON.stringify(after[i])) bad.push(b.ref); });
+    return { ok: after.length === f.before.length && bad.length === 0 && after.every(function(a, i){ return a.ref === f.before[i].ref; }), detail: "changed: " + bad.join(",") }; });
+  t("edit: deleting a ticked item is reported by deletionRisks", function(){
+    var f = editFx(), refs = {}; refs[f.it.ref] = true;
+    f.draft.items = f.draft.items.filter(function(i){ return i.ref !== f.it.ref; });
+    var risks = deletionRisks(f.key, f.existing, f.draft.items, refs);
+    return { ok: risks.length === 1 && risks[0].ref === f.it.ref && risks[0].tick && risks[0].note && risks[0].mark, detail: JSON.stringify(risks) }; });
+  t("edit: untouched or unticked deletions are not reported", function(){
+    var f = editFx(), other = f.draft.items.filter(function(i){ return i.ref !== f.it.ref && !state.checks[f.key + ":" + i.ref]; })[0], refs = {}; refs[other.ref] = true;
+    return eq(deletionRisks(f.key, f.existing, f.draft.items.filter(function(i){ return i.ref !== other.ref; }), refs).length, 0); });
+  t("edit: deleted item loses tick/note/doneAt, mark slot kept", function(){
+    var f = editFx(); f.meta.removeRefs[f.it.ref] = true;
+    f.draft.items = f.draft.items.filter(function(i){ return i.ref !== f.it.ref; });
+    var r = applyCourseSave(f.draft, f.key, f.existing, f.meta);
+    var gone = !state.courses[f.key].items.some(function(i){ return i.ref === f.it.ref; });
+    return { ok: gone && r.removed.join() === f.it.ref && !state.checks[f.id] && !state.notes[f.id] && !state.doneAt[f.id] && state.grades[f.key][f.it.comp][f.it.index] === "80", detail: "removed " + r.removed.join() }; });
+  t("edit: custom task for the course survives", function(){
+    var f = editFx(); applyCourseSave(f.draft, f.key, f.existing, f.meta);
+    return { ok: state.custom.length === 1 && state.custom[0].c === f.key && state.custom[0].t === "mine", detail: JSON.stringify(state.custom) }; });
+  t("edit: section pick survives an edit", function(){
+    var f = editFx(); applyCourseSave(f.draft, f.key, f.existing, f.meta);
+    return eq(state.courses[f.key].section.lab, "103"); });
+  t("edit: ref/id of every item is unchanged, template version +1, colour kept", function(){
+    var f = editFx(), col = f.existing.color, v = f.existing.templateVersion; applyCourseSave(f.draft, f.key, f.existing, f.meta);
+    var c = state.courses[f.key];
+    return { ok: c.color === col && c.templateVersion === v + 1 && c.items.map(function(i){ return i.ref; }).join() === f.before.map(function(i){ return i.ref; }).join(), detail: "v " + c.templateVersion }; });
+  t("edit: draft is a deep copy (editing it does not touch the saved course until saved)", function(){
+    var key = "DEMO3530", c = state.courses[key], d = editDraftFor(key), title = c.items[0].title;
+    d.items[0].title = "CHANGED"; d.course.name = "CHANGED";
+    return { ok: c.items[0].title === title && c.template.name !== "CHANGED", detail: c.items[0].title }; });
+  t("edit: Manage card offers Edit course", function(){
+    var v = view.course; view.course = "DEMO3530";
+    try { return { ok: hasBtn(viewCourses(), "Edit course"), detail: "button missing" }; } finally { view.course = v; } });
+  t("tour: five steps, each has title and text", function(){
+    return { ok: TOUR_STEPS.length === 5 && TOUR_STEPS.every(function(s){ return s.title && s.text && s.text.length > 40; }), detail: TOUR_STEPS.length + " steps" }; });
+  t("tour: boot rule never shows the tour to a returning user", function(){
+    var r = [shouldTourAfterWelcome(false, { welcomeDismissed: true }), shouldTourAfterWelcome(false, {}), shouldTourAfterWelcome(true, { tourDone: true }), shouldTourAfterWelcome(true, { welcomeDismissed: true }), shouldTourAfterWelcome(true, {}), shouldTourAfterWelcome(true, undefined)];
+    return eq(r.join(), "false,false,false,true,true,true"); });
+  t("tour: Settings and Help both offer Take the tour", function(){
+    var v = view.screen; var a = hasBtn(SCREENS.settings(), "Take the tour"), b = hasBtn(SCREENS.help(), "Take the tour"); view.screen = v;
+    return { ok: a && b && !!document.getElementById("tour"), detail: "settings " + a + " help " + b }; });
   state = saved;
   // palette contrast (PLAN 8A): current theme only
   var cs = getComputedStyle(document.documentElement), hx = function(v){ v = v.trim().replace("#",""); return [0,2,4].map(function(i){ return parseInt(v.substr(i,2),16)/255; }); };
@@ -2744,6 +3159,30 @@ function buildWelcome(){
     el("button", { class: "btn", on: { click: function(){ loadSample(); document.getElementById("welcome").close(); } }, text: "Try with sample data" }),
     el("button", { class: "btn ghost", on: { click: function(){ document.getElementById("welcome").close(); } }, text: "Dismiss" }) ]));
 }
+/* First-run walkthrough: five plain-language steps, one screen each. Finish, Skip, Esc and a backdrop click all close the dialog, and closing sets
+   ui.tourDone (same pattern as the welcome). It is only opened (a) right after the welcome closes in the session that showed it, or (b) by "Take the tour". */
+var TOUR_STEPS = [
+  { title: "Add a course", text: "Go to Courses and tap + Add course. Tap Copy prompt, paste it into your AI chat with your course outline attached, then paste the AI's reply back into the box. You check it on a review screen before anything is saved." },
+  { title: "Tick things off", text: "Today and Checklist show what's due. Tick items as you finish them. If your course has lab or tutorial sections you're asked which one is yours while you review a new course; you can also change it any time on the Courses screen, and your calendar then shows only your sessions." },
+  { title: "Check your grades", text: "Open Grades and type in each mark as you get it. The planner shows where you stand now and what you still need on the remaining work to reach the grade you're aiming for." },
+  { title: "Back up your data", text: "Everything lives only in this browser on this device. There is no account and no sync, so clearing browser data or switching phones starts you from empty. Open Settings, then Export backup, and save the file now and then." },
+  { title: "Install it on your phone", text: "To open it like an app: on iPhone, tap Share in Safari, then Add to Home Screen. On Android, open the Chrome menu, then Install app or Add to Home screen." }
+];
+function shouldTourAfterWelcome(firstRun, ui){ return !!firstRun && !(ui && ui.tourDone); }
+function openTour(i){
+  var d = document.getElementById("tour"), body = document.getElementById("tour-body");
+  if (!d || !body) return;
+  var n = Math.max(0, Math.min(TOUR_STEPS.length - 1, i || 0)), s = TOUR_STEPS[n], last = n === TOUR_STEPS.length - 1;
+  body.textContent = "";
+  body.appendChild(el("div", { class: "hint", text: "Step " + (n + 1) + " of " + TOUR_STEPS.length }));
+  body.appendChild(el("h2", { id: "tour-title", style: "font-size:1.2rem;margin:4px 0 6px", text: s.title }));
+  body.appendChild(el("p", { text: s.text }));
+  body.appendChild(el("div", { class: "row", style: "margin-top:10px" }, [
+    el("button", { class: "btn ghost", disabled: n === 0, on: { click: function(){ openTour(n - 1); } }, text: "Back" }),
+    el("button", { class: "btn", on: { click: function(){ if (last) d.close(); else openTour(n + 1); } }, text: last ? "Finish" : "Next" }),
+    el("button", { class: "btn ghost", on: { click: function(){ d.close(); } }, text: "Skip" }) ]));
+  if (!d.open) d.showModal();
+}
 /* Registers sw.js only when served over http(s). Without the companion files, or from file://, this fails quietly. */
 function registerOffline(){
   try {
@@ -2760,22 +3199,32 @@ function registerOffline(){
   var tabs = ["today","checklist","calendar","grades","courses"];
   var initial = (location.hash || "#today").slice(1);
   view.tab = tabs.indexOf(initial) >= 0 ? initial : "today";
-  document.querySelectorAll("nav.tabs button").forEach(function(b){
+  document.querySelectorAll("nav.tabs button[data-tab]").forEach(function(b){
     b.addEventListener("click", function(){ view.screen = null; UI.setTab(b.getAttribute("data-tab")); });
   });
+  var navSettings = document.querySelector("nav.tabs .nav-settings");
+  if (navSettings) navSettings.addEventListener("click", openSettings);
   window.addEventListener("hashchange", function(){
     var h = location.hash.slice(1);
     if (tabs.indexOf(h) >= 0) { view.screen = null; view.tab = h; render(); }
   });
-  document.getElementById("settings-btn").addEventListener("click", function(){ view.screen = view.screen === "settings" ? null : "settings"; render(); });
+  document.getElementById("settings-btn").addEventListener("click", openSettings);
   if (selfTest) view.screen = "selftest";
   // The "Resume review?" prompt is suppressed under ?selftest=1 (run.log, improvement pass 4b). The draft itself is kept.
   if (state.reviewDraft && state.reviewDraft.draft && !selfTest) view.resumeAsk = true;
   // Welcome: first launch only (nothing saved, not dismissed before). Yields to the resume prompt.
   var welcome = document.getElementById("welcome");
-  welcome.addEventListener("close", function(){ state.ui = state.ui || {}; state.ui.welcomeDismissed = true; Store.save(); });
-  welcome.addEventListener("click", function(ev){ if (ev.target === welcome) welcome.close(); });
   var firstRun = !state.term && !Object.keys(state.courses).length && !(state.ui && state.ui.welcomeDismissed);
+  // Walkthrough: after the welcome closes, only in the session that showed it. Returning users have welcomeDismissed, so firstRun is false for them.
+  welcome.addEventListener("close", function(){
+    state.ui = state.ui || {}; state.ui.welcomeDismissed = true; Store.save();
+    var go = shouldTourAfterWelcome(firstRun, state.ui); firstRun = false;
+    if (go) openTour(0);
+  });
+  welcome.addEventListener("click", function(ev){ if (ev.target === welcome) welcome.close(); });
+  var tour = document.getElementById("tour");
+  tour.addEventListener("close", function(){ state.ui = state.ui || {}; state.ui.tourDone = true; Store.save(); });
+  tour.addEventListener("click", function(ev){ if (ev.target === tour) tour.close(); });
   render();
   if (view.resumeAsk) askResume();
   else if (firstRun && !selfTest) { buildWelcome(); welcome.showModal(); }
